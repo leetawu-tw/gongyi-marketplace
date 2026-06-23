@@ -170,6 +170,14 @@
           <div class="field"><label>目前可售數量</label><input id="ep-qty" type="number"></div>
           <div class="field"><label>上架時間（留空＝立即上架）</label><input type="datetime-local" id="ep-publishat"></div>
           <div class="field">
+            <label>送貨日期（選填，可新增多個；留空則由買家自行填寫）</label>
+            <div style="display:flex;gap:8px;margin-bottom:6px;">
+              <input type="date" id="ep-newdate" style="flex:1;">
+              <button style="width:auto;flex:0 0 auto;" onclick="addDeliveryDate('ep')">新增日期</button>
+            </div>
+            <div id="ep-dates" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+          </div>
+          <div class="field">
             <label>供貨地點（可多選）</label>
             <div id="ep-locations" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
@@ -203,6 +211,14 @@
           <div class="field"><label>最少訂購量</label><input id="np-minqty" type="number" placeholder="例如：1"></div>
           <div class="field"><label>目前可售數量</label><input id="np-qty" type="number" placeholder="例如：50"></div>
           <div class="field"><label>上架時間（選填，留空立即上架）</label><input type="datetime-local" id="np-publishat"></div>
+          <div class="field">
+            <label>送貨日期（選填，可新增多個；留空則由買家自行填寫）</label>
+            <div style="display:flex;gap:8px;margin-bottom:6px;">
+              <input type="date" id="np-newdate" style="flex:1;">
+              <button style="width:auto;flex:0 0 auto;" onclick="addDeliveryDate('np')">新增日期</button>
+            </div>
+            <div id="np-dates" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+          </div>
           <div class="field">
             <label>商品照片</label>
             <div style="display:flex;gap:8px;">
@@ -457,6 +473,8 @@ async function openEditProduct(p){
   document.getElementById('ep-qty').value = p.available_qty ?? '';
   document.getElementById('ep-publishat').value = p.publish_at ? p.publish_at.slice(0,16) : '';
   document.getElementById('ep-status').value = p.status === 'closed' ? 'closed' : 'active';
+  epDates = Array.isArray(p.delivery_dates) ? [...p.delivery_dates] : [];
+  renderDateChips('ep');
 
   const { data: existingLocs } = await sb.from('product_locations').select('location_id').eq('product_id', p.id);
   const existingIds = (existingLocs||[]).map(l=>l.location_id);
@@ -487,7 +505,8 @@ async function saveEditProduct(){
     min_order_qty: Number(document.getElementById('ep-minqty').value) || 1,
     available_qty: document.getElementById('ep-qty').value ? Number(document.getElementById('ep-qty').value) : null,
     publish_at: publishAtRaw ? new Date(publishAtRaw).toISOString() : null,
-    status: document.getElementById('ep-status').value
+    status: document.getElementById('ep-status').value,
+    delivery_dates: epDates.length ? epDates : null
   };
   const { error } = await sb.from('products').update(updates).eq('id', editingProduct.id);
   if(error){ errEl.textContent = '儲存失敗：' + error.message; errEl.classList.remove('hide'); return; }
@@ -713,6 +732,33 @@ async function uploadProductPhoto(productId){
   return data.publicUrl;
 }
 
+let npDates = [];
+let epDates = [];
+function renderDateChips(prefix){
+  const arr = prefix === 'np' ? npDates : epDates;
+  const el = document.getElementById(prefix+'-dates');
+  el.innerHTML = arr.map((d,i) => `
+    <span style="font-size:12px;background:#EAF3DE;color:#27500A;padding:5px 10px;border-radius:8px;display:flex;align-items:center;gap:6px;">
+      ${d} <span style="cursor:pointer;color:#A32D2D;" onclick="removeDeliveryDate('${prefix}',${i})">✕</span>
+    </span>
+  `).join('');
+}
+function addDeliveryDate(prefix){
+  const input = document.getElementById(prefix+'-newdate');
+  const val = input.value;
+  if(!val) return;
+  const arr = prefix === 'np' ? npDates : epDates;
+  if(!arr.includes(val)) arr.push(val);
+  arr.sort();
+  input.value = '';
+  renderDateChips(prefix);
+}
+function removeDeliveryDate(prefix, idx){
+  const arr = prefix === 'np' ? npDates : epDates;
+  arr.splice(idx,1);
+  renderDateChips(prefix);
+}
+
 async function submitNewProduct(){
   const name = document.getElementById('np-name').value.trim();
   const unit = document.getElementById('np-unit').value.trim();
@@ -735,7 +781,7 @@ async function submitNewProduct(){
 
   const { data: product, error: pErr } = await sb.from('products').insert({
     farmer_id: myFarmerProfile.id, name, unit, price, farming_method_id, description,
-    min_order_qty, available_qty, status: 'active', publish_at
+    min_order_qty, available_qty, status: 'active', publish_at, delivery_dates: npDates.length ? npDates : null
   }).select().maybeSingle();
   if(pErr){ errEl.textContent = '上架失敗：' + pErr.message; errEl.classList.remove('hide'); return; }
 
@@ -758,6 +804,8 @@ async function submitNewProduct(){
   document.getElementById('np-photo-gallery').value='';
   selectedPhotoFile = null;
   document.getElementById('np-photo-preview').innerHTML='';
+  npDates = [];
+  renderDateChips('np');
   document.querySelectorAll('#np-locations input').forEach(c=>c.checked=false);
   farmerTab('products');
 }
@@ -852,7 +900,18 @@ function openDetail(i){
         <label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid #ddd;border-radius:8px;padding:5px 10px;width:auto;"><input type="checkbox" value="要青一點" style="width:auto;">要青一點(不要太熟)</label>
         <label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid #ddd;border-radius:8px;padding:5px 10px;width:auto;"><input type="checkbox" value="要熟一點" style="width:auto;">要熟一點</label>
       </div>
-      <input type="date" id="detail-bydate" style="margin-bottom:8px;">
+      ${Array.isArray(pendingProduct.delivery_dates) && pendingProduct.delivery_dates.length > 0 ? `
+        <label style="display:block;font-size:13px;margin-bottom:6px;color:#555;">希望送達日期</label>
+        <select id="detail-bydate" style="margin-bottom:8px;">
+          <option value="">不指定</option>
+          ${pendingProduct.delivery_dates.map(d=>`<option value="${d}">${d}</option>`).join('')}
+        </select>
+        <p style="font-size:11px;color:#999;margin:0 0 8px;">以上為農友安排的可送貨日期</p>
+      ` : `
+        <label style="display:block;font-size:13px;margin-bottom:6px;color:#555;">希望送達日期（選填）</label>
+        <input type="date" id="detail-bydate" style="margin-bottom:4px;">
+        <p style="font-size:11px;color:#999;margin:0 0 8px;">⚠️ 實際送貨由賣家合理安排</p>
+      `}
       <textarea id="detail-note" placeholder="其他補充說明..." rows="2"></textarea>
     </div>
 
