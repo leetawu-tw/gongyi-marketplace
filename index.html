@@ -362,7 +362,7 @@ async function openEditProduct(p){
   document.getElementById('farmer-products').classList.add('hide');
   document.getElementById('farmer-editproduct').classList.remove('hide');
 
-  const { data: methods } = await sb.from('farming_methods').select('*').order('name');
+  const { data: methods } = await sb.from('farming_methods').select('*').order('sort_order');
   document.getElementById('ep-method').innerHTML = (methods||[]).map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
 
   document.getElementById('ep-name').value = p.name;
@@ -462,6 +462,8 @@ async function loadDispatchOverview(){
   if(error){ el.innerHTML = '<p>載入失敗：'+error.message+'</p>'; return; }
   if(!data || data.length===0){ el.innerHTML = '<p style="color:#999;text-align:center;margin-top:30px;">目前沒有待出貨的訂單</p>'; return; }
 
+  window.__dispatchRows = data;
+
   // group by product+location
   const groups = {};
   data.forEach(so => {
@@ -471,7 +473,8 @@ async function loadDispatchOverview(){
     groups[key].rows.push(so);
   });
 
-  el.innerHTML = Object.values(groups).map(g => `
+  el.innerHTML = `<button onclick="printDispatchSheet()" style="margin-bottom:12px;background:#3B6D11;color:#fff;border:none;">🖨️ 列印出貨清單</button>` +
+    Object.values(groups).map(g => `
     <div class="order-card">
       <div class="order-head">
         <span style="font-size:14px;font-weight:600;">${g.name}</span>
@@ -494,6 +497,58 @@ async function loadDispatchOverview(){
       }).join('')}
     </div>
   `).join('');
+}
+
+function printDispatchSheet(){
+  const rows = window.__dispatchRows || [];
+  if(rows.length === 0){ alert('沒有資料可列印'); return; }
+  const sorted = [...rows].sort((a,b) => (a.supply_locations?.name||'').localeCompare(b.supply_locations?.name||''));
+  const farmName = myFarmerProfile.farm_name;
+  const today = new Date().toLocaleDateString('zh-TW');
+
+  const itemsHtml = sorted.map(r => {
+    const custName = r.orders?.users?.name || '顧客';
+    const reqs = [...(r.request_tags||[]), r.special_request].filter(Boolean).join('、');
+    const byDate = r.requested_by_date ? `希望 ${r.requested_by_date} 前送達` : '';
+    const addr = r.delivery_address ? `地址：${r.delivery_address}` : '';
+    return `
+      <div class="ticket">
+        <div class="ticket-top">
+          <span class="ticket-loc">${r.supply_locations?.name || ''}</span>
+          <span class="ticket-qty">${r.quantity} ${r.products?.unit || ''}</span>
+        </div>
+        <div class="ticket-product">${r.products?.name || ''}</div>
+        <div class="ticket-cust">顧客：${custName}</div>
+        ${reqs ? `<div class="ticket-note">備註：${reqs}</div>` : ''}
+        ${byDate ? `<div class="ticket-note">${byDate}</div>` : ''}
+        ${addr ? `<div class="ticket-note">${addr}</div>` : ''}
+      </div>`;
+  }).join('');
+
+  const html = `
+    <html><head><meta charset="UTF-8"><title>出貨清單</title>
+    <style>
+      body{font-family:"Microsoft JhengHei",sans-serif; padding:20px;}
+      h1{font-size:18px;margin:0 0 4px;}
+      .meta{font-size:12px;color:#666;margin-bottom:16px;}
+      .ticket{border:1px solid #333;border-radius:6px;padding:10px 12px;margin-bottom:10px;page-break-inside:avoid;}
+      .ticket-top{display:flex;justify-content:space-between;font-size:13px;color:#444;margin-bottom:4px;}
+      .ticket-loc{font-weight:bold;}
+      .ticket-product{font-size:16px;font-weight:bold;margin-bottom:4px;}
+      .ticket-cust{font-size:13px;margin-bottom:2px;}
+      .ticket-note{font-size:12px;color:#555;}
+      @media print { button{display:none;} }
+    </style></head>
+    <body>
+      <h1>${farmName}・出貨清單</h1>
+      <div class="meta">列印日期：${today}・共 ${sorted.length} 筆</div>
+      <button onclick="window.print()" style="margin-bottom:14px;padding:8px 16px;">列印</button>
+      ${itemsHtml}
+    </body></html>`;
+
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
 }
 
 async function confirmPayment(subOrderId){
@@ -536,7 +591,7 @@ async function loadMyProducts(){
 }
 
 async function loadFarmingMethodsForForm(){
-  const { data } = await sb.from('farming_methods').select('*').order('name');
+  const { data } = await sb.from('farming_methods').select('*').order('sort_order');
   const sel = document.getElementById('np-method');
   if(sel) sel.innerHTML = (data||[]).map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
 }
@@ -687,9 +742,14 @@ function openDetail(i){
 
     <div class="field">
       <label>選擇取貨地點</label>
-      <select id="detail-location">
-        ${locs.map(l=>`<option value="${l.id}">${l.name}</option>`).join('')}
+      <select id="detail-location" onchange="toggleAddressField()">
+        ${locs.map(l=>`<option value="${l.id}" data-name="${l.name}">${l.name}</option>`).join('')}
       </select>
+    </div>
+
+    <div class="field hide" id="detail-address-field">
+      <label>送貨郵寄地址（宅配必填）</label>
+      <textarea id="detail-address" rows="2" placeholder="請填寫完整收件地址"></textarea>
     </div>
 
     <div class="field">
@@ -715,6 +775,13 @@ function openDetail(i){
 
     <button class="primary" onclick="addToCart()">加入清單</button>
   `;
+  toggleAddressField();
+}
+function toggleAddressField(){
+  const sel = document.getElementById('detail-location');
+  const opt = sel.options[sel.selectedIndex];
+  const isDelivery = opt && opt.dataset.name === '宅配';
+  document.getElementById('detail-address-field').classList.toggle('hide', !isDelivery);
 }
 function stepQty(delta){
   const el = document.getElementById('detail-qty');
@@ -730,6 +797,11 @@ async function addToCart(){
   const byDate = document.getElementById('detail-bydate').value || null;
   const note = document.getElementById('detail-note').value.trim();
   const loc = pendingProduct.product_locations.find(pl=>pl.location_id===locationId)?.supply_locations;
+  let deliveryAddress = null;
+  if(loc?.name === '宅配'){
+    deliveryAddress = document.getElementById('detail-address').value.trim();
+    if(!deliveryAddress){ alert('宅配取貨需要填寫送貨地址'); return; }
+  }
 
   // 提示重複購買同一商品，但不阻擋
   const alreadyInCart = cart.some(it => it.product.id === pendingProduct.id);
@@ -752,7 +824,7 @@ async function addToCart(){
 
   cart.push({
     product: pendingProduct, qty, locationId, locationName: loc?.name,
-    tags, byDate, note,
+    tags, byDate, note, deliveryAddress,
     amount: qty * pendingProduct.price
   });
   updateCartCount();
@@ -780,6 +852,7 @@ function renderCart(){
         <div>
           <p style="margin:0;font-size:13px;font-weight:600;">${it.product.name} x${it.qty}・${it.locationName}</p>
           ${it.tags.length || it.note ? `<p style="margin:4px 0 0;font-size:12px;color:#888;">${[...it.tags, it.note].filter(Boolean).join('、')}</p>` : ''}
+          ${it.deliveryAddress ? `<p style="margin:4px 0 0;font-size:12px;color:#888;">📦 ${it.deliveryAddress}</p>` : ''}
         </div>
         <div style="text-align:right;">
           <p style="margin:0;font-weight:600;font-size:13px;">${it.amount} 元</p>
@@ -804,7 +877,8 @@ async function submitOrder(){
     amount: it.amount,
     request_tags: it.tags,
     requested_by_date: it.byDate,
-    special_request: it.note || null
+    special_request: it.note || null,
+    delivery_address: it.deliveryAddress || null
   }));
   const { error: subErr } = await sb.from('sub_orders').insert(rows);
   if(subErr){ alert('建立明細失敗：' + subErr.message); return; }
