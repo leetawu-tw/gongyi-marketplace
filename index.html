@@ -524,7 +524,7 @@ async function loadFarmerHistory(){
   const end = document.getElementById('fh-end').value;
   el.innerHTML = '<p style="color:#999;">載入中...</p>';
   let query = sb.from('sub_orders')
-    .select('*, products(name,unit), supply_locations(name), orders(customer_id, users:customer_id(name))')
+    .select('*, products(name,unit), supply_locations(name), orders(customer_id, users:customer_id(name,phone))')
     .eq('farmer_id', myFarmerProfile.id)
     .order('created_at', { ascending: false });
   if(start) query = query.gte('created_at', start + 'T00:00:00');
@@ -541,10 +541,11 @@ async function loadFarmerHistory(){
       const [label, cls] = statusMap[r.payment_status] || ['待繳款','pending'];
       const badge = r.is_settled ? '<span class="status settled">已結單</span>' : `<span class="status ${cls}">${label}</span>`;
       const custName = r.orders?.users?.name || '顧客';
+      const custPhone = r.orders?.users?.phone || '';
       const dateStr = new Date(r.created_at).toLocaleDateString('zh-TW');
       return `<div class="order-card">
         <div class="order-head">
-          <span style="font-size:13px;font-weight:600;">${custName}・${r.products?.name||''} x${r.quantity}</span>
+          <span style="font-size:13px;font-weight:600;">${custName}${custPhone?` (${custPhone})`:''}・${r.products?.name||''} x${r.quantity}</span>
           ${badge}
         </div>
         <p style="font-size:12px;color:#888;margin:0;">${dateStr}・${r.amount} 元・${r.supply_locations?.name||''}</p>
@@ -557,7 +558,7 @@ async function loadDispatchOverview(){
   const el = document.getElementById('farmer-dispatch');
   el.innerHTML = '<p style="color:#999;">載入中...</p>';
   const { data, error } = await sb.from('sub_orders')
-    .select('*, products(name,unit), supply_locations(name), orders(customer_id, users:customer_id(name))')
+    .select('*, products(name,unit), supply_locations(name), orders(customer_id, users:customer_id(name,phone))')
     .eq('farmer_id', myFarmerProfile.id)
     .eq('is_settled', false)
     .neq('payment_status','cancelled');
@@ -585,12 +586,13 @@ async function loadDispatchOverview(){
       <p style="font-size:12px;color:#888;margin:0 0 8px;">📍 ${g.location}・${g.rows.length} 位顧客</p>
       ${g.rows.map(r => {
         const custName = r.orders?.users?.name || '顧客';
+        const custPhone = r.orders?.users?.phone || '';
         const reqs = [...(r.request_tags||[]), r.special_request].filter(Boolean).join('、');
         const byDate = r.requested_by_date ? `・希望 ${r.requested_by_date} 前送達` : '';
         const payBadge = r.payment_status === 'confirmed' ? '<span class="status confirmed">已收款</span>' : (r.payment_status === 'reported' ? '<span class="status reported">已回報</span>' : '<span class="status pending">未繳款</span>');
         return `<div style="background:#FAF9F5;border-radius:8px;padding:8px;margin-bottom:6px;">
           <div style="display:flex;justify-content:space-between;font-size:13px;">
-            <span>${custName}</span>
+            <span>${custName}${custPhone?` <a href="tel:${custPhone}" style="color:#0C447C;text-decoration:none;">📞${custPhone}</a>`:''}</span>
             <span style="display:flex;align-items:center;gap:6px;"><b>${r.quantity} ${g.unit}</b> ${payBadge}</span>
           </div>
           ${reqs || byDate ? `<p style="font-size:12px;color:#888;margin:4px 0 0;">💬 ${reqs}${byDate}</p>` : ''}
@@ -610,6 +612,7 @@ function printDispatchSheet(){
 
   const itemsHtml = sorted.map(r => {
     const custName = r.orders?.users?.name || '顧客';
+    const custPhone = r.orders?.users?.phone || '';
     const reqs = [...(r.request_tags||[]), r.special_request].filter(Boolean).join('、');
     const byDate = r.requested_by_date ? `希望 ${r.requested_by_date} 前送達` : '';
     const addr = r.delivery_address ? `地址：${r.delivery_address}` : '';
@@ -620,7 +623,7 @@ function printDispatchSheet(){
           <span class="ticket-qty">${r.quantity} ${r.products?.unit || ''}</span>
         </div>
         <div class="ticket-product">${r.products?.name || ''}</div>
-        <div class="ticket-cust">顧客：${custName}</div>
+        <div class="ticket-cust">顧客：${custName}${custPhone?`・${custPhone}`:''}</div>
         ${reqs ? `<div class="ticket-note">備註：${reqs}</div>` : ''}
         ${byDate ? `<div class="ticket-note">${byDate}</div>` : ''}
         ${addr ? `<div class="ticket-note">${addr}</div>` : ''}
@@ -682,14 +685,23 @@ async function loadMyProducts(){
   if(error){ el.innerHTML = '<p>載入失敗：'+error.message+'</p>'; return; }
   if(!data || data.length===0){ el.innerHTML = '<p style="color:#999;text-align:center;margin-top:30px;">還沒有上架任何商品，點「新增商品」開始吧</p>'; return; }
   el.innerHTML = data.map(p => `
-    <div class="card" style="cursor:pointer;" onclick='openEditProduct(${JSON.stringify(p).replace(/'/g,"&#39;")})'>
-      <div class="info">
+    <div class="card" style="cursor:default;align-items:flex-start;">
+      <div class="info" style="cursor:pointer;" onclick='openEditProduct(${JSON.stringify(p).replace(/'/g,"&#39;")})'>
         <p class="name">${p.name}　<span style="font-size:11px;color:${p.status==='active'?'#27500A':'#999'};">${p.status==='active'?'上架中':'已關閉'}</span>${p.publish_at && new Date(p.publish_at) > new Date() ? ` <span style="font-size:11px;color:#0C447C;">・預約 ${new Date(p.publish_at).toLocaleString('zh-TW')}</span>` : ''}</p>
         <p class="farm">${p.farming_methods?.name || ''}</p>
         <p class="price">${p.price} 元 / ${p.unit}・剩餘 ${p.available_qty ?? '-'}</p>
       </div>
+      <button style="width:auto;flex:0 0 auto;font-size:12px;padding:8px 12px;color:${p.status==='active'?'#A32D2D':'#27500A'};" onclick='event.stopPropagation();toggleProductStatus("${p.id}","${p.status}")'>${p.status==='active'?'下架':'重新上架'}</button>
     </div>
   `).join('');
+}
+
+async function toggleProductStatus(id, currentStatus){
+  const newStatus = currentStatus === 'active' ? 'closed' : 'active';
+  if(!confirm(newStatus==='closed' ? '確定要立即下架這個商品嗎？顧客將無法再訂購。' : '確定要重新上架這個商品嗎？')) return;
+  const { error } = await sb.from('products').update({ status: newStatus }).eq('id', id);
+  if(error){ alert('操作失敗：' + error.message); return; }
+  loadMyProducts();
 }
 
 async function loadFarmingMethodsForForm(){
@@ -952,15 +964,19 @@ async function addToCart(){
     if(!proceed) return;
   }
 
-  // 檢查是否會超過剩餘可售數量（含清單裡已加的、以及其他人尚未結單的訂購量），只警示不阻擋
+  // 檢查是否會超過剩餘可售數量（含清單裡已加的、以及其他人尚未結單的訂購量），超過則阻擋
   if(pendingProduct.available_qty != null){
     const inCartQty = cart.filter(it => it.product.id === pendingProduct.id).reduce((s,it)=>s+it.qty, 0);
     const { data: pendingRows } = await sb.from('sub_orders').select('quantity').eq('product_id', pendingProduct.id).eq('is_settled', false).neq('payment_status','cancelled');
     const alreadyOrderedQty = (pendingRows||[]).reduce((s,r)=>s+Number(r.quantity), 0);
-    const totalAfter = inCartQty + alreadyOrderedQty + qty;
-    if(totalAfter > pendingProduct.available_qty){
-      const proceed = confirm(`提醒：「${pendingProduct.name}」目前可售 ${pendingProduct.available_qty} ${pendingProduct.unit}，加上您這筆及其他人尚未結單的訂購量，總計將達 ${totalAfter} ${pendingProduct.unit}，可能會超過農友能供應的數量。\n\n社區採信任制，農友會盡量協調，但還是想跟您確認一下：要繼續加入清單嗎？`);
-      if(!proceed) return;
+    const remaining = pendingProduct.available_qty - alreadyOrderedQty - inCartQty;
+    if(qty > remaining){
+      if(remaining <= 0){
+        alert(`很抱歉，「${pendingProduct.name}」目前已經沒有可訂購的數量了（其他人已訂購中，尚未結單），請稍後再試或聯絡農友。`);
+      } else {
+        alert(`「${pendingProduct.name}」目前最多只能訂購 ${remaining} ${pendingProduct.unit}（其他人已訂購部分尚未結單），請調整數量再試一次。`);
+      }
+      return;
     }
   }
 
