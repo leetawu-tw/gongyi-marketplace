@@ -159,6 +159,30 @@
 
         <div id="farmer-dispatch"></div>
         <div id="farmer-products" class="hide"></div>
+        <div id="farmer-editproduct" class="hide">
+          <button class="ghost" onclick="farmerTab('products')">← 返回我的商品</button>
+          <div class="field"><label>產品名稱</label><input id="ep-name"></div>
+          <div class="field"><label>單位</label><input id="ep-unit"></div>
+          <div class="field"><label>單價</label><input id="ep-price" type="number"></div>
+          <div class="field"><label>農法</label><select id="ep-method"></select></div>
+          <div class="field"><label>推銷說明</label><textarea id="ep-desc" rows="3"></textarea></div>
+          <div class="field"><label>最少訂購量</label><input id="ep-minqty" type="number"></div>
+          <div class="field"><label>目前可售數量</label><input id="ep-qty" type="number"></div>
+          <div class="field"><label>上架時間（留空＝立即上架）</label><input type="datetime-local" id="ep-publishat"></div>
+          <div class="field">
+            <label>供貨地點（可多選）</label>
+            <div id="ep-locations" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+          </div>
+          <div class="field">
+            <label>狀態</label>
+            <select id="ep-status">
+              <option value="active">上架中</option>
+              <option value="closed">已關閉（下架）</option>
+            </select>
+          </div>
+          <p class="errmsg hide" id="ep-err"></p>
+          <button class="primary" onclick="saveEditProduct()">儲存變更</button>
+        </div>
         <div id="farmer-history" class="hide">
           <div style="display:flex;gap:8px;margin-bottom:12px;align-items:flex-end;">
             <div class="field" style="margin-bottom:0;flex:1;"><label>起始日期</label><input type="date" id="fh-start"></div>
@@ -178,9 +202,19 @@
           <div class="field"><label>推銷說明</label><textarea id="np-desc" rows="3" placeholder="日曬充足、甜度高..."></textarea></div>
           <div class="field"><label>最少訂購量</label><input id="np-minqty" type="number" placeholder="例如：1"></div>
           <div class="field"><label>目前可售數量</label><input id="np-qty" type="number" placeholder="例如：50"></div>
+          <div class="field"><label>上架時間（選填，留空立即上架）</label><input type="datetime-local" id="np-publishat"></div>
           <div class="field">
             <label>商品照片</label>
-            <input type="file" id="np-photo-file" accept="image/*" capture="environment" onchange="previewPhoto()">
+            <div style="display:flex;gap:8px;">
+              <label style="flex:1;text-align:center;background:#3B6D11;color:#fff;border-radius:10px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">
+                📷 拍照
+                <input type="file" id="np-photo-camera" accept="image/*" capture="environment" onchange="previewPhoto(this)" style="display:none;">
+              </label>
+              <label style="flex:1;text-align:center;background:#f1efe8;color:#3B6D11;border-radius:10px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">
+                🖼️ 從相簿選擇
+                <input type="file" id="np-photo-gallery" accept="image/*" onchange="previewPhoto(this)" style="display:none;">
+              </label>
+            </div>
             <div id="np-photo-preview" style="margin-top:8px;"></div>
           </div>
           <div class="field">
@@ -304,9 +338,11 @@ async function createFarmerProfile(){
 }
 
 function farmerTab(tab){
-  ['dispatch','products','newproduct','history'].forEach(t=>{
-    document.getElementById('farmer-'+t).classList.toggle('hide', t!==tab);
-    document.getElementById('ftab-'+t).classList.toggle('active', t===tab);
+  ['dispatch','products','newproduct','history','editproduct'].forEach(t=>{
+    const el = document.getElementById('farmer-'+t);
+    if(el) el.classList.toggle('hide', t!==tab);
+    const chip = document.getElementById('ftab-'+t);
+    if(chip) chip.classList.toggle('active', t===tab);
   });
   if(tab==='dispatch') loadDispatchOverview();
   if(tab==='products') loadMyProducts();
@@ -318,6 +354,66 @@ function farmerTab(tab){
     document.getElementById('fh-end').value = end.toISOString().slice(0,10);
     loadFarmerHistory();
   }
+}
+
+let editingProduct = null;
+async function openEditProduct(p){
+  editingProduct = p;
+  document.getElementById('farmer-products').classList.add('hide');
+  document.getElementById('farmer-editproduct').classList.remove('hide');
+
+  const { data: methods } = await sb.from('farming_methods').select('*').order('name');
+  document.getElementById('ep-method').innerHTML = (methods||[]).map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
+
+  document.getElementById('ep-name').value = p.name;
+  document.getElementById('ep-unit').value = p.unit;
+  document.getElementById('ep-price').value = p.price;
+  document.getElementById('ep-method').value = p.farming_method_id || '';
+  document.getElementById('ep-desc').value = p.description || '';
+  document.getElementById('ep-minqty').value = p.min_order_qty || '';
+  document.getElementById('ep-qty').value = p.available_qty ?? '';
+  document.getElementById('ep-publishat').value = p.publish_at ? p.publish_at.slice(0,16) : '';
+  document.getElementById('ep-status').value = p.status === 'closed' ? 'closed' : 'active';
+
+  const { data: existingLocs } = await sb.from('product_locations').select('location_id').eq('product_id', p.id);
+  const existingIds = (existingLocs||[]).map(l=>l.location_id);
+  document.getElementById('ep-locations').innerHTML = allLocations.map(l => `
+    <label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid #ddd;border-radius:8px;padding:5px 10px;width:auto;">
+      <input type="checkbox" value="${l.id}" ${existingIds.includes(l.id)?'checked':''} style="width:auto;">${l.name}
+    </label>
+  `).join('');
+}
+
+async function saveEditProduct(){
+  const errEl = document.getElementById('ep-err');
+  errEl.classList.add('hide');
+  const name = document.getElementById('ep-name').value.trim();
+  const unit = document.getElementById('ep-unit').value.trim();
+  const price = Number(document.getElementById('ep-price').value);
+  const locIds = Array.from(document.querySelectorAll('#ep-locations input:checked')).map(c=>c.value);
+  if(!name || !unit || !price || locIds.length===0){
+    errEl.textContent = '請填寫產品名稱、單位、單價，並至少選一個供貨地點';
+    errEl.classList.remove('hide');
+    return;
+  }
+  const publishAtRaw = document.getElementById('ep-publishat').value;
+  const updates = {
+    name, unit, price,
+    farming_method_id: document.getElementById('ep-method').value || null,
+    description: document.getElementById('ep-desc').value.trim(),
+    min_order_qty: Number(document.getElementById('ep-minqty').value) || 1,
+    available_qty: document.getElementById('ep-qty').value ? Number(document.getElementById('ep-qty').value) : null,
+    publish_at: publishAtRaw ? new Date(publishAtRaw).toISOString() : null,
+    status: document.getElementById('ep-status').value
+  };
+  const { error } = await sb.from('products').update(updates).eq('id', editingProduct.id);
+  if(error){ errEl.textContent = '儲存失敗：' + error.message; errEl.classList.remove('hide'); return; }
+
+  await sb.from('product_locations').delete().eq('product_id', editingProduct.id);
+  await sb.from('product_locations').insert(locIds.map(lid => ({ product_id: editingProduct.id, location_id: lid })));
+
+  alert('已儲存變更！');
+  farmerTab('products');
 }
 
 async function loadFarmerHistory(){
@@ -429,9 +525,9 @@ async function loadMyProducts(){
   if(error){ el.innerHTML = '<p>載入失敗：'+error.message+'</p>'; return; }
   if(!data || data.length===0){ el.innerHTML = '<p style="color:#999;text-align:center;margin-top:30px;">還沒有上架任何商品，點「新增商品」開始吧</p>'; return; }
   el.innerHTML = data.map(p => `
-    <div class="card" style="cursor:default;">
+    <div class="card" style="cursor:pointer;" onclick='openEditProduct(${JSON.stringify(p).replace(/'/g,"&#39;")})'>
       <div class="info">
-        <p class="name">${p.name}　<span style="font-size:11px;color:${p.status==='active'?'#27500A':'#999'};">${p.status==='active'?'上架中':'已關閉'}</span></p>
+        <p class="name">${p.name}　<span style="font-size:11px;color:${p.status==='active'?'#27500A':'#999'};">${p.status==='active'?'上架中':'已關閉'}</span>${p.publish_at && new Date(p.publish_at) > new Date() ? ` <span style="font-size:11px;color:#0C447C;">・預約 ${new Date(p.publish_at).toLocaleString('zh-TW')}</span>` : ''}</p>
         <p class="farm">${p.farming_methods?.name || ''}</p>
         <p class="price">${p.price} 元 / ${p.unit}・剩餘 ${p.available_qty ?? '-'}</p>
       </div>
@@ -454,16 +550,22 @@ function loadLocationCheckboxes(){
   `).join('');
 }
 
-function previewPhoto(){
-  const file = document.getElementById('np-photo-file').files[0];
+let selectedPhotoFile = null;
+
+function previewPhoto(inputEl){
+  const file = inputEl.files[0];
   const preview = document.getElementById('np-photo-preview');
   if(!file){ preview.innerHTML = ''; return; }
+  selectedPhotoFile = file;
+  // 清空另一個 input，避免兩邊都有殘留檔案造成混淆
+  const otherId = inputEl.id === 'np-photo-camera' ? 'np-photo-gallery' : 'np-photo-camera';
+  document.getElementById(otherId).value = '';
   const url = URL.createObjectURL(file);
   preview.innerHTML = `<img src="${url}" style="width:100%;max-height:160px;object-fit:cover;border-radius:10px;">`;
 }
 
 async function uploadProductPhoto(productId){
-  const file = document.getElementById('np-photo-file').files[0];
+  const file = selectedPhotoFile;
   if(!file) return null;
   const ext = file.name.split('.').pop();
   const path = `${productId}-${Date.now()}.${ext}`;
@@ -481,6 +583,8 @@ async function submitNewProduct(){
   const description = document.getElementById('np-desc').value.trim();
   const min_order_qty = Number(document.getElementById('np-minqty').value) || 1;
   const available_qty = Number(document.getElementById('np-qty').value) || null;
+  const publishAtRaw = document.getElementById('np-publishat').value;
+  const publish_at = publishAtRaw ? new Date(publishAtRaw).toISOString() : null;
   const locIds = Array.from(document.querySelectorAll('#np-locations input:checked')).map(c=>c.value);
   const errEl = document.getElementById('np-err');
   errEl.classList.add('hide');
@@ -493,7 +597,7 @@ async function submitNewProduct(){
 
   const { data: product, error: pErr } = await sb.from('products').insert({
     farmer_id: myFarmerProfile.id, name, unit, price, farming_method_id, description,
-    min_order_qty, available_qty, status: 'active'
+    min_order_qty, available_qty, status: 'active', publish_at
   }).select().maybeSingle();
   if(pErr){ errEl.textContent = '上架失敗：' + pErr.message; errEl.classList.remove('hide'); return; }
 
@@ -512,7 +616,9 @@ async function submitNewProduct(){
   document.getElementById('np-desc').value='';
   document.getElementById('np-minqty').value='';
   document.getElementById('np-qty').value='';
-  document.getElementById('np-photo-file').value='';
+  document.getElementById('np-photo-camera').value='';
+  document.getElementById('np-photo-gallery').value='';
+  selectedPhotoFile = null;
   document.getElementById('np-photo-preview').innerHTML='';
   document.querySelectorAll('#np-locations input').forEach(c=>c.checked=false);
   farmerTab('products');
@@ -541,6 +647,8 @@ async function loadProducts(){
   const list = document.getElementById('product-list');
   if(error){ list.innerHTML = '<p>載入失敗</p>'; return; }
   let items = data || [];
+  const now = new Date();
+  items = items.filter(p => !p.publish_at || new Date(p.publish_at) <= now);
   if(activeLocationFilter){
     items = items.filter(p => p.product_locations.some(pl => pl.location_id === activeLocationFilter));
   }
