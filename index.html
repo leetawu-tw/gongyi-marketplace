@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>公益市集</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: #F4F1EA;
+    color: #2C2C2A;
+    padding-bottom: 70px;
+  }
+  .app { max-width: 480px; margin: 0 auto; min-height: 100vh; background: #fff; position: relative; }
+  header.top {
+    position: sticky; top: 0; background: #fff; z-index: 10;
+    padding: 14px 16px; border-bottom: 1px solid #eee;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header.top h1 { font-size: 17px; margin: 0; font-weight: 600; color: #3B6D11; }
+  .screen { padding: 14px 16px 24px; }
+  .hide { display: none !important; }
+
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 8px; }
+  .chip { flex: 0 0 auto; padding: 7px 14px; border-radius: 20px; background: #f1efe8; color: #5f5e5a; font-size: 13px; cursor: pointer; white-space: nowrap; border: 1px solid transparent; }
+  .chip.active { background: #E1F5EE; color: #085041; border-color: #5DCAA5; }
+
+  .card { border: 1px solid #eee; border-radius: 14px; padding: 12px; margin-bottom: 12px; display: flex; gap: 12px; cursor: pointer; }
+  .card .thumb { width: 64px; height: 64px; border-radius: 10px; background: #f1efe8; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-size: 24px; color: #b4b2a9; overflow: hidden;}
+  .card .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .card .info { flex: 1; min-width: 0; }
+  .card .info p { margin: 0; }
+  .card .name { font-size: 15px; font-weight: 600; }
+  .card .farm { font-size: 12px; color: #888; margin: 3px 0; }
+  .card .price { font-size: 14px; font-weight: 600; color: #3B6D11; }
+  .tag { font-size: 11px; padding: 3px 8px; border-radius: 8px; background: #EAF3DE; color: #27500A; align-self: flex-start; white-space: nowrap; }
+
+  input, select, textarea, button {
+    font-family: inherit; font-size: 14px; border-radius: 10px; border: 1px solid #ddd; padding: 10px 12px; width: 100%;
+  }
+  button { background: #fff; cursor: pointer; }
+  button.primary { background: #3B6D11; color: #fff; border: none; font-weight: 600; padding: 12px; }
+  button.ghost { border: none; background: transparent; color: #888; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 13px; margin-bottom: 6px; color: #555; }
+
+  .stepper { display: flex; align-items: center; gap: 10px; }
+  .stepper button { width: 32px; height: 32px; border-radius: 50%; padding: 0; flex: 0 0 auto; }
+  .stepper span { font-size: 15px; font-weight: 600; min-width: 24px; text-align: center; }
+
+  .navbar {
+    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 480px; background: #fff; border-top: 1px solid #eee;
+    display: flex; justify-content: space-around; padding: 10px 0; z-index: 20;
+  }
+  .navitem { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: #aaa; cursor: pointer; background: none; border: none; padding: 0; width: auto; }
+  .navitem.active { color: #3B6D11; }
+  .navitem .ic { font-size: 18px; }
+
+  .order-card { border: 1px solid #eee; border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+  .order-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .status { font-size: 11px; padding: 3px 9px; border-radius: 8px; }
+  .status.pending { background: #FAEEDA; color: #633806; }
+  .status.reported { background: #E6F1FB; color: #0C447C; }
+  .status.confirmed,.status.settled { background: #EAF3DE; color: #27500A; }
+
+  .errmsg { color: #A32D2D; font-size: 13px; margin: 6px 0 0; }
+  .topbar-action { font-size: 13px; color: #3B6D11; background: none; border: none; width: auto; padding: 4px; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- 登入/註冊畫面 -->
+  <div id="view-auth" class="screen">
+    <h1 style="text-align:center;color:#3B6D11;margin-bottom:24px;">公益市集</h1>
+
+    <div id="auth-login">
+      <p style="font-weight:600;margin-bottom:14px;">登入</p>
+      <div class="field"><label>手機號碼</label><input id="login-phone" placeholder="0912345678"></div>
+      <div class="field"><label>密碼</label><input id="login-pw" type="password" placeholder="請輸入密碼"></div>
+      <p class="errmsg hide" id="login-err"></p>
+      <button class="primary" onclick="doLogin()">登入</button>
+      <p style="text-align:center;margin-top:16px;font-size:13px;color:#888;">還沒有帳號？<a href="#" onclick="showRegister()" style="color:#3B6D11;">註冊</a></p>
+    </div>
+
+    <div id="auth-register" class="hide">
+      <p style="font-weight:600;margin-bottom:14px;">註冊新帳號</p>
+      <div class="field"><label>姓名</label><input id="reg-name" placeholder="您的姓名"></div>
+      <div class="field"><label>手機號碼</label><input id="reg-phone" placeholder="0912345678"></div>
+      <div class="field"><label>密碼</label><input id="reg-pw" type="password" placeholder="設定密碼"></div>
+      <div class="field">
+        <label>我是</label>
+        <select id="reg-role">
+          <option value="customer">顧客（買菜）</option>
+          <option value="farmer">小農友（賣菜）</option>
+          <option value="both">兩者都是</option>
+        </select>
+      </div>
+      <p class="errmsg hide" id="reg-err"></p>
+      <button class="primary" onclick="doRegister()">註冊</button>
+      <p style="text-align:center;margin-top:16px;font-size:13px;color:#888;">已經有帳號？<a href="#" onclick="showLogin()" style="color:#3B6D11;">登入</a></p>
+    </div>
+  </div>
+
+  <!-- 主畫面 -->
+  <div id="view-main" class="hide">
+    <header class="top">
+      <h1 id="header-title">公益市集</h1>
+      <button class="topbar-action" onclick="logout()">登出</button>
+    </header>
+
+    <!-- 首頁 -->
+    <div id="view-home" class="screen">
+      <div class="chips" id="location-chips"></div>
+      <div id="product-list"></div>
+    </div>
+
+    <!-- 商品詳情 -->
+    <div id="view-detail" class="screen hide">
+      <button class="ghost" onclick="goHome()">← 返回</button>
+      <div id="detail-content"></div>
+    </div>
+
+    <!-- 結算 -->
+    <div id="view-cart" class="screen hide">
+      <p style="font-weight:600;font-size:16px;margin-bottom:14px;">確認訂單</p>
+      <div id="cart-content"></div>
+      <p style="font-size:12px;color:#999;margin:14px 0;">送出後將分別顯示各農家收款資訊，請自行匯款後到「我的訂單」回報。</p>
+      <button class="primary" onclick="submitOrder()">送出訂單</button>
+    </div>
+
+    <!-- 我的訂單 -->
+    <div id="view-orders" class="screen hide">
+      <p style="font-weight:600;font-size:16px;margin-bottom:14px;">我的訂單</p>
+      <div id="orders-content"></div>
+    </div>
+
+    <!-- 農友後台 -->
+    <div id="view-farmer" class="screen hide">
+      <div id="farmer-setup" class="hide">
+        <p style="font-weight:600;font-size:16px;margin-bottom:10px;">先建立您的農家檔案</p>
+        <div class="field"><label>農家名稱</label><input id="ff-farmname" placeholder="例如：大寶自然農園"></div>
+        <div class="field"><label>農家介紹</label><textarea id="ff-intro" rows="3" placeholder="理念、栽種方式、小故事..."></textarea></div>
+        <div class="field"><label>收款方式說明</label><input id="ff-contact" placeholder="例如：中華郵政 0000-1111-2222"></div>
+        <button class="primary" onclick="createFarmerProfile()">建立農家檔案</button>
+      </div>
+
+      <div id="farmer-main" class="hide">
+        <div class="chips" style="margin-bottom:14px;">
+          <span class="chip active" id="ftab-dispatch" onclick="farmerTab('dispatch')">出貨總覽</span>
+          <span class="chip" id="ftab-products" onclick="farmerTab('products')">我的商品</span>
+          <span class="chip" id="ftab-newproduct" onclick="farmerTab('newproduct')">新增商品</span>
+          <span class="chip" id="ftab-history" onclick="farmerTab('history')">歷史訂單</span>
+        </div>
+
+        <div id="farmer-dispatch"></div>
+        <div id="farmer-products" class="hide"></div>
+        <div id="farmer-history" class="hide">
+          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:flex-end;">
+            <div class="field" style="margin-bottom:0;flex:1;"><label>起始日期</label><input type="date" id="fh-start"></div>
+            <div class="field" style="margin-bottom:0;flex:1;"><label>結束日期</label><input type="date" id="fh-end"></div>
+            <button style="width:auto;flex:0 0 auto;height:38px;" onclick="loadFarmerHistory()">查詢</button>
+          </div>
+          <div id="farmer-history-content"></div>
+        </div>
+        <div id="farmer-newproduct" class="hide">
+          <div class="field"><label>產品名稱</label><input id="np-name" placeholder="例如：黃金小番茄"></div>
+          <div class="field"><label>單位</label><input id="np-unit" placeholder="例如：台斤、包(約500g)"></div>
+          <div class="field"><label>單價</label><input id="np-price" type="number" placeholder="例如：120"></div>
+          <div class="field">
+            <label>農法</label>
+            <select id="np-method"></select>
+          </div>
+          <div class="field"><label>推銷說明</label><textarea id="np-desc" rows="3" placeholder="日曬充足、甜度高..."></textarea></div>
+          <div class="field"><label>最少訂購量</label><input id="np-minqty" type="number" placeholder="例如：1"></div>
+          <div class="field"><label>目前可售數量</label><input id="np-qty" type="number" placeholder="例如：50"></div>
+          <div class="field">
+            <label>商品照片</label>
+            <input type="file" id="np-photo-file" accept="image/*" capture="environment" onchange="previewPhoto()">
+            <div id="np-photo-preview" style="margin-top:8px;"></div>
+          </div>
+          <div class="field">
+            <label>供貨地點（可多選）</label>
+            <div id="np-locations" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+          </div>
+          <p class="errmsg hide" id="np-err"></p>
+          <button class="primary" onclick="submitNewProduct()">送出上架</button>
+        </div>
+      </div>
+    </div>
+
+    <nav class="navbar">
+      <button class="navitem active" id="nav-home" onclick="goHome()"><span class="ic">🏠</span>首頁</button>
+      <button class="navitem" id="nav-cart" onclick="showCart()"><span class="ic">🛒</span>清單<span id="cart-count"></span></button>
+      <button class="navitem" id="nav-orders" onclick="showOrders()"><span class="ic">📋</span>我的訂單</button>
+      <button class="navitem hide" id="nav-farmer" onclick="showFarmer()"><span class="ic">🌾</span>農友後台</button>
+    </nav>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = "https://byidreybkcjquhxdzgaz.supabase.co";
+const SUPABASE_KEY = "sb_publishable_lbEHxkQC9p86bXF3q_WDAQ_YUqP-mjL";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;
+let cart = [];
+let activeLocationFilter = null;
+let allLocations = [];
+let pendingProduct = null;
+
+// ---------- AUTH ----------
+function showRegister(){ document.getElementById('auth-login').classList.add('hide'); document.getElementById('auth-register').classList.remove('hide'); }
+function showLogin(){ document.getElementById('auth-register').classList.add('hide'); document.getElementById('auth-login').classList.remove('hide'); }
+
+async function doLogin(){
+  const phone = document.getElementById('login-phone').value.trim();
+  const pw = document.getElementById('login-pw').value;
+  const errEl = document.getElementById('login-err');
+  errEl.classList.add('hide');
+  if(!phone || !pw){ errEl.textContent = '請輸入手機號碼與密碼'; errEl.classList.remove('hide'); return; }
+  const { data, error } = await sb.from('users').select('*').eq('phone', phone).eq('password', pw).maybeSingle();
+  if(error || !data){ errEl.textContent = '手機號碼或密碼錯誤'; errEl.classList.remove('hide'); return; }
+  currentUser = data;
+  localStorage.setItem('cm_user', JSON.stringify(data));
+  enterApp();
+}
+
+async function doRegister(){
+  const name = document.getElementById('reg-name').value.trim();
+  const phone = document.getElementById('reg-phone').value.trim();
+  const pw = document.getElementById('reg-pw').value;
+  const role = document.getElementById('reg-role').value;
+  const errEl = document.getElementById('reg-err');
+  errEl.classList.add('hide');
+  if(!name || !phone || !pw){ errEl.textContent = '請填寫完整資訊'; errEl.classList.remove('hide'); return; }
+  const is_farmer = (role === 'farmer' || role === 'both');
+  const is_customer = (role === 'customer' || role === 'both');
+  const { data, error } = await sb.from('users').insert({ name, phone, password: pw, is_farmer, is_customer }).select().maybeSingle();
+  if(error){ errEl.textContent = '註冊失敗，手機號碼可能已被使用'; errEl.classList.remove('hide'); return; }
+  currentUser = data;
+  localStorage.setItem('cm_user', JSON.stringify(data));
+  enterApp();
+}
+
+function logout(){
+  currentUser = null;
+  localStorage.removeItem('cm_user');
+  document.getElementById('view-main').classList.add('hide');
+  document.getElementById('view-auth').classList.remove('hide');
+}
+
+function enterApp(){
+  document.getElementById('view-auth').classList.add('hide');
+  document.getElementById('view-main').classList.remove('hide');
+  document.getElementById('header-title').textContent = '公益市集・' + currentUser.name;
+  document.getElementById('nav-farmer').classList.toggle('hide', !currentUser.is_farmer);
+  loadLocations();
+  loadProducts();
+  if(currentUser.is_farmer) loadFarmingMethodsForForm();
+}
+
+// ---------- NAV ----------
+function setActiveScreen(id){
+  ['view-home','view-detail','view-cart','view-orders','view-farmer'].forEach(v=>{
+    document.getElementById(v).classList.toggle('hide', v!==id);
+  });
+  ['nav-home','nav-cart','nav-orders','nav-farmer'].forEach(n=>document.getElementById(n).classList.remove('active'));
+}
+function goHome(){ setActiveScreen('view-home'); document.getElementById('nav-home').classList.add('active'); loadProducts(); }
+function showCart(){ setActiveScreen('view-cart'); document.getElementById('nav-cart').classList.add('active'); renderCart(); }
+function showOrders(){ setActiveScreen('view-orders'); document.getElementById('nav-orders').classList.add('active'); loadOrders(); }
+function showFarmer(){ setActiveScreen('view-farmer'); document.getElementById('nav-farmer').classList.add('active'); loadFarmerHome(); }
+
+// ---------- FARMER BACKEND ----------
+let myFarmerProfile = null;
+
+async function loadFarmerHome(){
+  const { data, error } = await sb.from('farmer_profiles').select('*').eq('user_id', currentUser.id).maybeSingle();
+  if(error || !data){
+    document.getElementById('farmer-setup').classList.remove('hide');
+    document.getElementById('farmer-main').classList.add('hide');
+    return;
+  }
+  myFarmerProfile = data;
+  document.getElementById('farmer-setup').classList.add('hide');
+  document.getElementById('farmer-main').classList.remove('hide');
+  farmerTab('dispatch');
+}
+
+async function createFarmerProfile(){
+  const farm_name = document.getElementById('ff-farmname').value.trim();
+  const intro = document.getElementById('ff-intro').value.trim();
+  const contact_info = document.getElementById('ff-contact').value.trim();
+  if(!farm_name){ alert('請填寫農家名稱'); return; }
+  const { error } = await sb.from('farmer_profiles').insert({ user_id: currentUser.id, farm_name, intro, contact_info });
+  if(error){ alert('建立失敗：' + error.message); return; }
+  loadFarmerHome();
+}
+
+function farmerTab(tab){
+  ['dispatch','products','newproduct','history'].forEach(t=>{
+    document.getElementById('farmer-'+t).classList.toggle('hide', t!==tab);
+    document.getElementById('ftab-'+t).classList.toggle('active', t===tab);
+  });
+  if(tab==='dispatch') loadDispatchOverview();
+  if(tab==='products') loadMyProducts();
+  if(tab==='newproduct') loadLocationCheckboxes();
+  if(tab==='history'){
+    const end = new Date();
+    const start = new Date(); start.setDate(start.getDate()-30);
+    document.getElementById('fh-start').value = start.toISOString().slice(0,10);
+    document.getElementById('fh-end').value = end.toISOString().slice(0,10);
+    loadFarmerHistory();
+  }
+}
+
+async function loadFarmerHistory(){
+  const el = document.getElementById('farmer-history-content');
+  const start = document.getElementById('fh-start').value;
+  const end = document.getElementById('fh-end').value;
+  el.innerHTML = '<p style="color:#999;">載入中...</p>';
+  let query = sb.from('sub_orders')
+    .select('*, products(name,unit), supply_locations(name), orders(customer_id, users:customer_id(name))')
+    .eq('farmer_id', myFarmerProfile.id)
+    .order('created_at', { ascending: false });
+  if(start) query = query.gte('created_at', start + 'T00:00:00');
+  if(end) query = query.lte('created_at', end + 'T23:59:59');
+  const { data, error } = await query;
+  if(error){ el.innerHTML = '<p>載入失敗：'+error.message+'</p>'; return; }
+  if(!data || data.length===0){ el.innerHTML = '<p style="color:#999;text-align:center;margin-top:20px;">這段期間沒有訂單記錄</p>'; return; }
+
+  const totalAmount = data.reduce((s,r)=>s+Number(r.amount),0);
+  const statusMap = { pending: ['待繳款','pending'], reported: ['已回報','reported'], confirmed: ['已確認','confirmed'], cancelled: ['已取消','pending'] };
+
+  el.innerHTML = `<p style="font-size:13px;color:#666;margin:0 0 10px;">共 ${data.length} 筆・總金額 ${totalAmount} 元</p>` +
+    data.map(r => {
+      const [label, cls] = statusMap[r.payment_status] || ['待繳款','pending'];
+      const badge = r.is_settled ? '<span class="status settled">已結單</span>' : `<span class="status ${cls}">${label}</span>`;
+      const custName = r.orders?.users?.name || '顧客';
+      const dateStr = new Date(r.created_at).toLocaleDateString('zh-TW');
+      return `<div class="order-card">
+        <div class="order-head">
+          <span style="font-size:13px;font-weight:600;">${custName}・${r.products?.name||''} x${r.quantity}</span>
+          ${badge}
+        </div>
+        <p style="font-size:12px;color:#888;margin:0;">${dateStr}・${r.amount} 元・${r.supply_locations?.name||''}</p>
+      </div>`;
+    }).join('');
+}
+
+// 出貨總覽：依「商品 x 地點」彙總尚未結單的子訂單
+async function loadDispatchOverview(){
+  const el = document.getElementById('farmer-dispatch');
+  el.innerHTML = '<p style="color:#999;">載入中...</p>';
+  const { data, error } = await sb.from('sub_orders')
+    .select('*, products(name,unit), supply_locations(name), orders(customer_id, users:customer_id(name))')
+    .eq('farmer_id', myFarmerProfile.id)
+    .eq('is_settled', false)
+    .neq('payment_status','cancelled');
+  if(error){ el.innerHTML = '<p>載入失敗：'+error.message+'</p>'; return; }
+  if(!data || data.length===0){ el.innerHTML = '<p style="color:#999;text-align:center;margin-top:30px;">目前沒有待出貨的訂單</p>'; return; }
+
+  // group by product+location
+  const groups = {};
+  data.forEach(so => {
+    const key = so.product_id + '|' + so.location_id;
+    if(!groups[key]) groups[key] = { name: so.products?.name, unit: so.products?.unit, location: so.supply_locations?.name, total: 0, rows: [] };
+    groups[key].total += Number(so.quantity);
+    groups[key].rows.push(so);
+  });
+
+  el.innerHTML = Object.values(groups).map(g => `
+    <div class="order-card">
+      <div class="order-head">
+        <span style="font-size:14px;font-weight:600;">${g.name}</span>
+        <span style="font-size:13px;font-weight:600;color:#3B6D11;">共 ${g.total} ${g.unit}</span>
+      </div>
+      <p style="font-size:12px;color:#888;margin:0 0 8px;">📍 ${g.location}・${g.rows.length} 位顧客</p>
+      ${g.rows.map(r => {
+        const custName = r.orders?.users?.name || '顧客';
+        const reqs = [...(r.request_tags||[]), r.special_request].filter(Boolean).join('、');
+        const byDate = r.requested_by_date ? `・希望 ${r.requested_by_date} 前送達` : '';
+        const payBadge = r.payment_status === 'confirmed' ? '<span class="status confirmed">已收款</span>' : (r.payment_status === 'reported' ? '<span class="status reported">已回報</span>' : '<span class="status pending">未繳款</span>');
+        return `<div style="background:#FAF9F5;border-radius:8px;padding:8px;margin-bottom:6px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;">
+            <span>${custName}</span>
+            <span style="display:flex;align-items:center;gap:6px;"><b>${r.quantity} ${g.unit}</b> ${payBadge}</span>
+          </div>
+          ${reqs || byDate ? `<p style="font-size:12px;color:#888;margin:4px 0 0;">💬 ${reqs}${byDate}</p>` : ''}
+          ${r.payment_status !== 'confirmed' ? `<button style="margin-top:6px;font-size:12px;" onclick="confirmPayment('${r.id}')">確認已收款</button>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+  `).join('');
+}
+
+async function confirmPayment(subOrderId){
+  if(!confirm('確認已經收到這筆款項了嗎？（確認後會正式扣減商品庫存）')) return;
+  const { data: so, error: soErr } = await sb.from('sub_orders').select('product_id, quantity').eq('id', subOrderId).maybeSingle();
+  if(soErr || !so){ alert('查詢訂單失敗'); return; }
+
+  const { error } = await sb.from('sub_orders').update({
+    payment_status: 'confirmed',
+    confirmed_at: new Date().toISOString(),
+    is_settled: true
+  }).eq('id', subOrderId);
+  if(error){ alert('更新失敗：' + error.message); return; }
+
+  // 正式扣減庫存
+  const { data: product } = await sb.from('products').select('available_qty').eq('id', so.product_id).maybeSingle();
+  if(product && product.available_qty != null){
+    const newQty = Math.max(0, product.available_qty - Number(so.quantity));
+    await sb.from('products').update({ available_qty: newQty, status: newQty === 0 ? 'sold_out' : 'active' }).eq('id', so.product_id);
+  }
+
+  loadDispatchOverview();
+}
+
+async function loadMyProducts(){
+  const el = document.getElementById('farmer-products');
+  el.innerHTML = '<p style="color:#999;">載入中...</p>';
+  const { data, error } = await sb.from('products').select('*, farming_methods(name)').eq('farmer_id', myFarmerProfile.id).order('created_at',{ascending:false});
+  if(error){ el.innerHTML = '<p>載入失敗：'+error.message+'</p>'; return; }
+  if(!data || data.length===0){ el.innerHTML = '<p style="color:#999;text-align:center;margin-top:30px;">還沒有上架任何商品，點「新增商品」開始吧</p>'; return; }
+  el.innerHTML = data.map(p => `
+    <div class="card" style="cursor:default;">
+      <div class="info">
+        <p class="name">${p.name}　<span style="font-size:11px;color:${p.status==='active'?'#27500A':'#999'};">${p.status==='active'?'上架中':'已關閉'}</span></p>
+        <p class="farm">${p.farming_methods?.name || ''}</p>
+        <p class="price">${p.price} 元 / ${p.unit}・剩餘 ${p.available_qty ?? '-'}</p>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function loadFarmingMethodsForForm(){
+  const { data } = await sb.from('farming_methods').select('*').order('name');
+  const sel = document.getElementById('np-method');
+  if(sel) sel.innerHTML = (data||[]).map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
+}
+
+function loadLocationCheckboxes(){
+  const wrap = document.getElementById('np-locations');
+  wrap.innerHTML = allLocations.map(l => `
+    <label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid #ddd;border-radius:8px;padding:5px 10px;width:auto;">
+      <input type="checkbox" value="${l.id}" style="width:auto;">${l.name}
+    </label>
+  `).join('');
+}
+
+function previewPhoto(){
+  const file = document.getElementById('np-photo-file').files[0];
+  const preview = document.getElementById('np-photo-preview');
+  if(!file){ preview.innerHTML = ''; return; }
+  const url = URL.createObjectURL(file);
+  preview.innerHTML = `<img src="${url}" style="width:100%;max-height:160px;object-fit:cover;border-radius:10px;">`;
+}
+
+async function uploadProductPhoto(productId){
+  const file = document.getElementById('np-photo-file').files[0];
+  if(!file) return null;
+  const ext = file.name.split('.').pop();
+  const path = `${productId}-${Date.now()}.${ext}`;
+  const { error: upErr } = await sb.storage.from('product-photos').upload(path, file);
+  if(upErr){ alert('照片上傳失敗：' + upErr.message); return null; }
+  const { data } = sb.storage.from('product-photos').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+async function submitNewProduct(){
+  const name = document.getElementById('np-name').value.trim();
+  const unit = document.getElementById('np-unit').value.trim();
+  const price = Number(document.getElementById('np-price').value);
+  const farming_method_id = document.getElementById('np-method').value;
+  const description = document.getElementById('np-desc').value.trim();
+  const min_order_qty = Number(document.getElementById('np-minqty').value) || 1;
+  const available_qty = Number(document.getElementById('np-qty').value) || null;
+  const locIds = Array.from(document.querySelectorAll('#np-locations input:checked')).map(c=>c.value);
+  const errEl = document.getElementById('np-err');
+  errEl.classList.add('hide');
+
+  if(!name || !unit || !price || locIds.length===0){
+    errEl.textContent = '請填寫產品名稱、單位、單價，並至少選一個供貨地點';
+    errEl.classList.remove('hide');
+    return;
+  }
+
+  const { data: product, error: pErr } = await sb.from('products').insert({
+    farmer_id: myFarmerProfile.id, name, unit, price, farming_method_id, description,
+    min_order_qty, available_qty, status: 'active'
+  }).select().maybeSingle();
+  if(pErr){ errEl.textContent = '上架失敗：' + pErr.message; errEl.classList.remove('hide'); return; }
+
+  const locRows = locIds.map(lid => ({ product_id: product.id, location_id: lid }));
+  await sb.from('product_locations').insert(locRows);
+
+  const photoUrl = await uploadProductPhoto(product.id);
+  if(photoUrl){
+    await sb.from('product_photos').insert({ product_id: product.id, photo_url: photoUrl });
+  }
+
+  alert('商品上架成功！');
+  document.getElementById('np-name').value='';
+  document.getElementById('np-unit').value='';
+  document.getElementById('np-price').value='';
+  document.getElementById('np-desc').value='';
+  document.getElementById('np-minqty').value='';
+  document.getElementById('np-qty').value='';
+  document.getElementById('np-photo-file').value='';
+  document.getElementById('np-photo-preview').innerHTML='';
+  document.querySelectorAll('#np-locations input').forEach(c=>c.checked=false);
+  farmerTab('products');
+}
+
+// ---------- HOME / PRODUCTS ----------
+async function loadLocations(){
+  const { data } = await sb.from('supply_locations').select('*').order('name');
+  allLocations = data || [];
+  const wrap = document.getElementById('location-chips');
+  wrap.innerHTML = '<span class="chip active" id="chip-all" onclick="filterLocation(null)">全部</span>' +
+    allLocations.map(l=>`<span class="chip" id="chip-${l.id}" onclick="filterLocation('${l.id}')">${l.name}</span>`).join('');
+}
+function filterLocation(id){
+  activeLocationFilter = id;
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+  document.getElementById(id ? 'chip-'+id : 'chip-all').classList.add('active');
+  loadProducts();
+}
+
+async function loadProducts(){
+  let query = sb.from('products')
+    .select('*, farmer_profiles(farm_name), farming_methods(name), product_photos(photo_url), product_locations(location_id, supply_locations(id,name))')
+    .eq('status','active');
+  const { data, error } = await query;
+  const list = document.getElementById('product-list');
+  if(error){ list.innerHTML = '<p>載入失敗</p>'; return; }
+  let items = data || [];
+  if(activeLocationFilter){
+    items = items.filter(p => p.product_locations.some(pl => pl.location_id === activeLocationFilter));
+  }
+  if(items.length === 0){ list.innerHTML = '<p style="color:#999;text-align:center;margin-top:40px;">目前沒有符合的商品</p>'; return; }
+  window.__products = items;
+  list.innerHTML = items.map((p, i) => {
+    const locs = p.product_locations.map(pl=>pl.supply_locations?.name).filter(Boolean);
+    const photo = p.product_photos?.[0]?.photo_url;
+    return `<div class="card" onclick="openDetail(${i})">
+      <div class="thumb">${photo ? `<img src="${photo}">` : '🥬'}</div>
+      <div class="info">
+        <p class="name">${p.name}</p>
+        <p class="farm">${p.farmer_profiles?.farm_name || ''}${p.farming_methods?.name ? '・'+p.farming_methods.name : ''}</p>
+        <p class="price">${p.price} 元 / ${p.unit}</p>
+      </div>
+      <span class="tag">${locs.join('・') || '未設定'}</span>
+    </div>`;
+  }).join('');
+}
+
+// ---------- DETAIL ----------
+function openDetail(i){
+  pendingProduct = window.__products[i];
+  setActiveScreen('view-detail');
+  const locs = pendingProduct.product_locations.map(pl=>pl.supply_locations).filter(Boolean);
+  const photo = pendingProduct.product_photos?.[0]?.photo_url;
+  document.getElementById('detail-content').innerHTML = `
+    <div style="width:100%;height:180px;border-radius:14px;background:#f1efe8;display:flex;align-items:center;justify-content:center;font-size:40px;overflow:hidden;margin:10px 0;">
+      ${photo ? `<img src="${photo}" style="width:100%;height:100%;object-fit:cover;">` : '🥬'}
+    </div>
+    <p style="font-size:13px;color:#888;margin:0;">${pendingProduct.farmer_profiles?.farm_name || ''}</p>
+    <p style="font-size:20px;font-weight:700;margin:4px 0;">${pendingProduct.price} 元 / ${pendingProduct.unit}</p>
+    ${pendingProduct.farming_methods?.name ? `<span class="tag" style="background:#E6F1FB;color:#0C447C;">${pendingProduct.farming_methods.name}</span>` : ''}
+    <p style="font-size:13px;color:#666;line-height:1.6;margin:12px 0;">${pendingProduct.description || ''}</p>
+    <p style="font-size:12px;color:#aaa;margin:0 0 14px;">最少訂購 ${pendingProduct.min_order_qty || 1} ${pendingProduct.unit}・剩餘 ${pendingProduct.available_qty ?? '未設定'} ${pendingProduct.unit}</p>
+
+    <div class="field">
+      <label>選擇取貨地點</label>
+      <select id="detail-location">
+        ${locs.map(l=>`<option value="${l.id}">${l.name}</option>`).join('')}
+      </select>
+    </div>
+
+    <div class="field">
+      <label>數量</label>
+      <div class="stepper">
+        <button onclick="stepQty(-1)">-</button>
+        <span id="detail-qty">${pendingProduct.min_order_qty || 1}</span>
+        <button onclick="stepQty(1)">+</button>
+        <span style="font-size:13px;color:#888;">${pendingProduct.unit}</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>特殊要求（選填，可多選＋文字說明）</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid #ddd;border-radius:8px;padding:5px 10px;width:auto;"><input type="checkbox" value="要大一點" style="width:auto;">要大一點</label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid #ddd;border-radius:8px;padding:5px 10px;width:auto;"><input type="checkbox" value="要青一點" style="width:auto;">要青一點(不要太熟)</label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid #ddd;border-radius:8px;padding:5px 10px;width:auto;"><input type="checkbox" value="要熟一點" style="width:auto;">要熟一點</label>
+      </div>
+      <input type="date" id="detail-bydate" style="margin-bottom:8px;">
+      <textarea id="detail-note" placeholder="其他補充說明..." rows="2"></textarea>
+    </div>
+
+    <button class="primary" onclick="addToCart()">加入清單</button>
+  `;
+}
+function stepQty(delta){
+  const el = document.getElementById('detail-qty');
+  let v = Number(el.textContent) + delta;
+  const min = pendingProduct.min_order_qty || 1;
+  if(v < min) v = min;
+  el.textContent = v;
+}
+async function addToCart(){
+  const qty = Number(document.getElementById('detail-qty').textContent);
+  const locationId = document.getElementById('detail-location').value;
+  const tags = Array.from(document.querySelectorAll('#detail-content input[type=checkbox]:checked')).map(c=>c.value);
+  const byDate = document.getElementById('detail-bydate').value || null;
+  const note = document.getElementById('detail-note').value.trim();
+  const loc = pendingProduct.product_locations.find(pl=>pl.location_id===locationId)?.supply_locations;
+
+  // 提示重複購買同一商品，但不阻擋
+  const alreadyInCart = cart.some(it => it.product.id === pendingProduct.id);
+  if(alreadyInCart){
+    const proceed = confirm(`您的清單裡已經有「${pendingProduct.name}」了，這次要再加一筆嗎？\n（不同地點/時間都可以分開訂購，這只是提醒）`);
+    if(!proceed) return;
+  }
+
+  // 檢查是否會超過剩餘可售數量（含清單裡已加的、以及其他人尚未結單的訂購量），只警示不阻擋
+  if(pendingProduct.available_qty != null){
+    const inCartQty = cart.filter(it => it.product.id === pendingProduct.id).reduce((s,it)=>s+it.qty, 0);
+    const { data: pendingRows } = await sb.from('sub_orders').select('quantity').eq('product_id', pendingProduct.id).eq('is_settled', false).neq('payment_status','cancelled');
+    const alreadyOrderedQty = (pendingRows||[]).reduce((s,r)=>s+Number(r.quantity), 0);
+    const totalAfter = inCartQty + alreadyOrderedQty + qty;
+    if(totalAfter > pendingProduct.available_qty){
+      const proceed = confirm(`提醒：「${pendingProduct.name}」目前可售 ${pendingProduct.available_qty} ${pendingProduct.unit}，加上您這筆及其他人尚未結單的訂購量，總計將達 ${totalAfter} ${pendingProduct.unit}，可能會超過農友能供應的數量。\n\n社區採信任制，農友會盡量協調，但還是想跟您確認一下：要繼續加入清單嗎？`);
+      if(!proceed) return;
+    }
+  }
+
+  cart.push({
+    product: pendingProduct, qty, locationId, locationName: loc?.name,
+    tags, byDate, note,
+    amount: qty * pendingProduct.price
+  });
+  updateCartCount();
+  goHome();
+  alert('已加入清單！');
+}
+function updateCartCount(){
+  document.getElementById('cart-count').textContent = cart.length ? ' ('+cart.length+')' : '';
+}
+
+// ---------- CART / CHECKOUT ----------
+function renderCart(){
+  const el = document.getElementById('cart-content');
+  if(cart.length === 0){ el.innerHTML = '<p style="color:#999;text-align:center;margin-top:30px;">清單是空的，先去首頁逛逛吧</p>'; return; }
+  const byFarmer = {};
+  cart.forEach((item, idx) => {
+    const farmName = item.product.farmer_profiles?.farm_name || '未知農家';
+    if(!byFarmer[farmName]) byFarmer[farmName] = [];
+    byFarmer[farmName].push({...item, idx});
+  });
+  el.innerHTML = Object.entries(byFarmer).map(([farm, items]) => `
+    <p style="font-size:13px;color:#888;margin:14px 0 6px;">${farm}</p>
+    ${items.map(it => `
+      <div style="border:1px solid #eee;border-radius:10px;padding:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <p style="margin:0;font-size:13px;font-weight:600;">${it.product.name} x${it.qty}・${it.locationName}</p>
+          ${it.tags.length || it.note ? `<p style="margin:4px 0 0;font-size:12px;color:#888;">${[...it.tags, it.note].filter(Boolean).join('、')}</p>` : ''}
+        </div>
+        <div style="text-align:right;">
+          <p style="margin:0;font-weight:600;font-size:13px;">${it.amount} 元</p>
+          <button class="ghost" style="font-size:11px;padding:2px;" onclick="removeFromCart(${it.idx})">移除</button>
+        </div>
+      </div>
+    `).join('')}
+  `).join('');
+}
+function removeFromCart(idx){ cart.splice(idx,1); renderCart(); updateCartCount(); }
+
+async function submitOrder(){
+  if(cart.length === 0) return;
+  const { data: order, error: orderErr } = await sb.from('orders').insert({ customer_id: currentUser.id }).select().maybeSingle();
+  if(orderErr){ alert('建立訂單失敗：' + orderErr.message); return; }
+  const rows = cart.map(it => ({
+    order_id: order.id,
+    farmer_id: it.product.farmer_id,
+    product_id: it.product.id,
+    location_id: it.locationId,
+    quantity: it.qty,
+    amount: it.amount,
+    request_tags: it.tags,
+    requested_by_date: it.byDate,
+    special_request: it.note || null
+  }));
+  const { error: subErr } = await sb.from('sub_orders').insert(rows);
+  if(subErr){ alert('建立明細失敗：' + subErr.message); return; }
+  cart = [];
+  updateCartCount();
+  alert('訂單已送出！請到「我的訂單」查看各農家收款資訊並回報匯款。');
+  showOrders();
+}
+
+// ---------- MY ORDERS ----------
+async function loadOrders(){
+  const el = document.getElementById('orders-content');
+  const { data, error } = await sb.from('sub_orders')
+    .select('*, products(name,unit), supply_locations(name), farmer_profiles(farm_name, contact_info), orders!inner(customer_id)')
+    .eq('orders.customer_id', currentUser.id)
+    .order('created_at', { ascending: false });
+  if(error){ el.innerHTML = '<p>載入失敗：'+error.message+'</p>'; return; }
+  if(!data || data.length === 0){ el.innerHTML = '<p style="color:#999;text-align:center;margin-top:30px;">還沒有任何訂單</p>'; return; }
+  const statusMap = { pending: ['待繳款','pending'], reported: ['已回報，待確認','reported'], confirmed: ['已確認收款','confirmed'], cancelled: ['已取消','pending'] };
+  el.innerHTML = data.map(so => {
+    const [label, cls] = statusMap[so.payment_status] || ['待繳款','pending'];
+    const settledBadge = so.is_settled ? '<span class="status settled">已結單</span>' : `<span class="status ${cls}">${label}</span>`;
+    return `<div class="order-card">
+      <div class="order-head">
+        <span style="font-size:13px;font-weight:600;">${so.farmer_profiles?.farm_name || ''}・${so.products?.name || ''} x${so.quantity}</span>
+        ${settledBadge}
+      </div>
+      <p style="font-size:12px;color:#888;margin:0 0 8px;">應繳 ${so.amount} 元・${so.supply_locations?.name || ''}取貨</p>
+      ${!so.is_settled && so.payment_status === 'pending' ? `
+        <p style="font-size:12px;color:#888;margin:0 0 6px;">收款資訊：${so.farmer_profiles?.contact_info || '請洽農友'}</p>
+        <button onclick="openReportForm('${so.id}')">回報匯款資訊</button>
+        <div id="report-form-${so.id}" class="hide" style="margin-top:8px;border-top:1px dashed #ddd;padding-top:8px;">
+          <div class="field"><label>匯款日期</label><input type="date" id="rp-date-${so.id}" value="${new Date().toISOString().slice(0,10)}"></div>
+          <div class="field"><label>匯款帳號後五碼</label><input id="rp-last5-${so.id}" placeholder="例如：12345" maxlength="5"></div>
+          <button class="primary" onclick="reportPayment('${so.id}')">送出回報</button>
+        </div>
+      ` : ''}
+      ${so.payment_status === 'reported' && !so.is_settled ? `<p style="font-size:12px;color:#0C447C;">已回報，等待農友/管理員確認</p>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function openReportForm(subOrderId){
+  document.getElementById('report-form-'+subOrderId).classList.toggle('hide');
+}
+
+async function reportPayment(subOrderId){
+  const date = document.getElementById('rp-date-'+subOrderId).value;
+  const last5 = document.getElementById('rp-last5-'+subOrderId).value.trim();
+  if(!date || !last5){ alert('請填寫匯款日期與後五碼'); return; }
+  const { error } = await sb.from('sub_orders').update({
+    payment_status: 'reported',
+    payment_report_last5: last5,
+    payment_report_time: new Date(date).toISOString()
+  }).eq('id', subOrderId);
+  if(error){ alert('回報失敗：' + error.message); return; }
+  alert('已回報，等待確認！');
+  loadOrders();
+}
+
+// ---------- INIT ----------
+(function init(){
+  const saved = localStorage.getItem('cm_user');
+  if(saved){ currentUser = JSON.parse(saved); enterApp(); }
+})();
+</script>
+</body>
+</html>
