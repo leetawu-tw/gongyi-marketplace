@@ -84,7 +84,18 @@
       <div class="field"><label>密碼</label><input id="login-pw" type="password" placeholder="請輸入密碼"></div>
       <p class="errmsg hide" id="login-err"></p>
       <button class="primary" onclick="doLogin()">登入</button>
-      <p style="text-align:center;margin-top:16px;font-size:13px;color:#888;">還沒有帳號？<a href="#" onclick="showRegister()" style="color:#3B6D11;">註冊</a></p>
+      <p style="text-align:center;margin-top:16px;font-size:13px;color:#888;">還沒有帳號？<a href="#" onclick="showRegister()" style="color:#3B6D11;">註冊</a>　｜　<a href="#" onclick="showForgot()" style="color:#888;">忘記密碼</a></p>
+    </div>
+
+    <div id="auth-forgot" class="hide">
+      <p style="font-weight:600;margin-bottom:14px;">自助重設密碼</p>
+      <p style="font-size:13px;color:#888;margin-bottom:14px;">請輸入您的手機號碼及新密碼，系統會直接更新您的登入密碼。</p>
+      <div class="field"><label>手機號碼</label><input id="forgot-phone" placeholder="0912345678"></div>
+      <div class="field"><label>新密碼</label><input id="forgot-pw" type="password" placeholder="設定新密碼"></div>
+      <div class="field"><label>確認新密碼</label><input id="forgot-pw2" type="password" placeholder="再輸入一次"></div>
+      <p class="errmsg hide" id="forgot-err"></p>
+      <button class="primary" onclick="doResetPassword()">重設密碼</button>
+      <p style="text-align:center;margin-top:16px;font-size:13px;color:#888;"><a href="#" onclick="showLogin()" style="color:#3B6D11;">← 返回登入</a></p>
     </div>
 
     <div id="auth-register" class="hide">
@@ -135,7 +146,10 @@
 
     <!-- 我的訂單 -->
     <div id="view-orders" class="screen hide">
-      <p style="font-weight:600;font-size:16px;margin-bottom:14px;">我的訂單</p>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <p style="font-weight:600;font-size:16px;margin:0;">我的訂單</p>
+        <button id="orders-toggle-btn" style="width:auto;font-size:12px;padding:6px 12px;" onclick="toggleOrdersFilter()">含已結單</button>
+      </div>
       <div id="orders-content"></div>
     </div>
 
@@ -245,15 +259,30 @@
 
     <!-- 管理員後台 -->
     <div id="view-admin" class="screen hide">
-      <p style="font-weight:600;font-size:16px;margin-bottom:6px;">供貨地點排序</p>
-      <p style="font-size:12px;color:#999;margin:0 0 10px;">用上下箭頭調整顯示順序，最上面排在顧客畫面最前面。</p>
-      <div id="admin-locations"></div>
+      <div class="chips" style="margin-bottom:14px;">
+        <span class="chip active" id="atab-sort" onclick="adminTab('sort')">排序管理</span>
+        <span class="chip" id="atab-accounts" onclick="adminTab('accounts')">帳號管理</span>
+      </div>
 
-      <p style="font-weight:600;font-size:16px;margin:24px 0 6px;">農法排序</p>
-      <div id="admin-methods"></div>
-      <div style="display:flex;gap:8px;margin-top:8px;">
-        <input id="admin-new-method" placeholder="新增農法名稱...">
-        <button style="width:auto;flex:0 0 auto;" onclick="addFarmingMethod()">新增</button>
+      <div id="admin-sort">
+        <p style="font-weight:600;font-size:15px;margin-bottom:6px;">供貨地點排序</p>
+        <p style="font-size:12px;color:#999;margin:0 0 10px;">拖曳調整顯示順序。</p>
+        <div id="admin-locations"></div>
+        <p style="font-weight:600;font-size:15px;margin:24px 0 6px;">農法排序</p>
+        <div id="admin-methods"></div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <input id="admin-new-method" placeholder="新增農法名稱...">
+          <button style="width:auto;flex:0 0 auto;" onclick="addFarmingMethod()">新增</button>
+        </div>
+      </div>
+
+      <div id="admin-accounts" class="hide">
+        <p style="font-weight:600;font-size:15px;margin-bottom:10px;">帳號管理</p>
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <input id="admin-search-phone" placeholder="輸入手機號碼搜尋..." style="flex:1;">
+          <button style="width:auto;flex:0 0 auto;" onclick="adminSearchUser()">搜尋</button>
+        </div>
+        <div id="admin-user-result"></div>
       </div>
     </div>
 
@@ -280,8 +309,25 @@ let allLocations = [];
 let pendingProduct = null;
 
 // ---------- AUTH ----------
-function showRegister(){ document.getElementById('auth-login').classList.add('hide'); document.getElementById('auth-register').classList.remove('hide'); }
-function showLogin(){ document.getElementById('auth-register').classList.add('hide'); document.getElementById('auth-login').classList.remove('hide'); }
+function showRegister(){ document.getElementById('auth-login').classList.add('hide'); document.getElementById('auth-register').classList.remove('hide'); document.getElementById('auth-forgot').classList.add('hide'); }
+function showLogin(){ document.getElementById('auth-register').classList.add('hide'); document.getElementById('auth-forgot').classList.add('hide'); document.getElementById('auth-login').classList.remove('hide'); }
+function showForgot(){ document.getElementById('auth-login').classList.add('hide'); document.getElementById('auth-register').classList.add('hide'); document.getElementById('auth-forgot').classList.remove('hide'); }
+
+async function doResetPassword(){
+  const phone = document.getElementById('forgot-phone').value.trim();
+  const pw = document.getElementById('forgot-pw').value;
+  const pw2 = document.getElementById('forgot-pw2').value;
+  const errEl = document.getElementById('forgot-err');
+  errEl.classList.add('hide');
+  if(!phone || !pw){ errEl.textContent = '請填寫手機號碼與新密碼'; errEl.classList.remove('hide'); return; }
+  if(pw !== pw2){ errEl.textContent = '兩次輸入的密碼不一致'; errEl.classList.remove('hide'); return; }
+  const { data, error } = await sb.from('users').select('id').eq('phone', phone).maybeSingle();
+  if(error || !data){ errEl.textContent = '找不到這個手機號碼的帳號，請確認是否輸入正確'; errEl.classList.remove('hide'); return; }
+  const { error: updErr } = await sb.from('users').update({ password: pw }).eq('phone', phone);
+  if(updErr){ errEl.textContent = '重設失敗：' + updErr.message; errEl.classList.remove('hide'); return; }
+  alert('密碼已重設成功！請用新密碼登入。');
+  showLogin();
+}
 
 async function doLogin(){
   const phone = document.getElementById('login-phone').value.trim();
@@ -342,36 +388,131 @@ function goHome(){ setActiveScreen('view-home'); document.getElementById('nav-ho
 function showCart(){ setActiveScreen('view-cart'); document.getElementById('nav-cart').classList.add('active'); renderCart(); }
 function showOrders(){ setActiveScreen('view-orders'); document.getElementById('nav-orders').classList.add('active'); loadOrders(); }
 function showFarmer(){ setActiveScreen('view-farmer'); document.getElementById('nav-farmer').classList.add('active'); loadFarmerHome(); }
-function showAdmin(){ setActiveScreen('view-admin'); document.getElementById('nav-admin').classList.add('active'); loadAdminLocations(); loadAdminMethods(); }
+function showAdmin(){ setActiveScreen('view-admin'); document.getElementById('nav-admin').classList.add('active'); adminTab('sort'); }
+
+function adminTab(tab){
+  ['sort','accounts'].forEach(t=>{
+    document.getElementById('admin-'+t).classList.toggle('hide', t!==tab);
+    document.getElementById('atab-'+t).classList.toggle('active', t===tab);
+  });
+  if(tab==='sort'){ loadAdminLocations(); loadAdminMethods(); }
+}
+
+async function adminSearchUser(){
+  const phone = document.getElementById('admin-search-phone').value.trim();
+  const el = document.getElementById('admin-user-result');
+  if(!phone){ el.innerHTML = '<p style="color:#A32D2D;font-size:13px;">請輸入手機號碼</p>'; return; }
+  const { data, error } = await sb.from('users').select('*').eq('phone', phone).maybeSingle();
+  if(error || !data){ el.innerHTML = '<p style="color:#A32D2D;font-size:13px;">找不到這個手機號碼的帳號</p>'; return; }
+  el.innerHTML = `
+    <div style="border:1px solid #eee;border-radius:12px;padding:14px;">
+      <p style="font-size:14px;font-weight:600;margin:0 0 4px;">${data.name}</p>
+      <p style="font-size:13px;color:#888;margin:0 0 10px;">${data.phone}・${[data.is_farmer?'農友':'',data.is_customer?'顧客':'',data.is_admin?'管理員':''].filter(Boolean).join('/')}</p>
+      <div class="field"><label>重設密碼為</label><input id="admin-reset-pw" type="password" placeholder="輸入新密碼"></div>
+      <button class="primary" onclick="adminResetPassword('${data.phone}')">確認重設密碼</button>
+    </div>
+  `;
+}
+
+async function adminResetPassword(phone){
+  const pw = document.getElementById('admin-reset-pw').value;
+  if(!pw){ alert('請輸入新密碼'); return; }
+  if(!confirm(`確定要將 ${phone} 的密碼重設嗎？`)) return;
+  const { error } = await sb.from('users').update({ password: pw }).eq('phone', phone);
+  if(error){ alert('重設失敗：' + error.message); return; }
+  alert('密碼已重設成功！');
+  document.getElementById('admin-reset-pw').value = '';
+}
 
 // ---------- ADMIN: 排序管理 ----------
 function renderSortableList(containerId, items, persistFn, showDelete){
   const el = document.getElementById(containerId);
   el.innerHTML = items.map((item) => `
-    <div class="drag-item" draggable="true" data-id="${item.id}"
-      style="display:flex;align-items:center;gap:10px;border:1px solid #eee;border-radius:10px;padding:10px 12px;margin-bottom:6px;background:#fff;cursor:grab;">
-      <span style="color:#bbb;font-size:16px;">⠿</span>
+    <div class="drag-item" data-id="${item.id}"
+      style="display:flex;align-items:center;gap:10px;border:1px solid #eee;border-radius:10px;padding:10px 12px;margin-bottom:6px;background:#fff;touch-action:none;user-select:none;">
+      <span style="color:#bbb;font-size:20px;cursor:grab;padding:4px;">⠿</span>
       <span style="font-size:14px;flex:1;">${item.name}</span>
       ${showDelete ? `<button style="width:auto;color:#A32D2D;border:none;background:none;font-size:13px;" onclick="deleteFarmingMethod('${item.id}','${item.name}')">刪除</button>` : ''}
     </div>
   `).join('');
-
-  let dragEl = null;
-  el.querySelectorAll('.drag-item').forEach(node => {
-    node.addEventListener('dragstart', () => { dragEl = node; node.style.opacity='0.4'; });
-    node.addEventListener('dragend', () => { node.style.opacity='1'; persistOrder(el, items, persistFn); });
-    node.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      const target = e.target.closest('.drag-item');
-      if(!target || target === dragEl) return;
-      const rect = target.getBoundingClientRect();
-      const before = (e.clientY - rect.top) < rect.height/2;
-      el.insertBefore(dragEl, before ? target : target.nextSibling);
-    });
-  });
+  initDragSort(el, persistFn);
 }
 
-async function persistOrder(el, items, persistFn){
+function initDragSort(container, persistFn){
+  let dragging = null, placeholder = null, startY = 0, startScrollY = 0;
+
+  function getItemFromPoint(y){
+    const items = [...container.querySelectorAll('.drag-item:not(.drag-placeholder)')];
+    for(const item of items){
+      if(item === dragging) continue;
+      const rect = item.getBoundingClientRect();
+      if(y < rect.top + rect.height/2) return item;
+    }
+    return null;
+  }
+
+  container.querySelectorAll('.drag-item').forEach(item => {
+    const handle = item.querySelector('span');
+
+    // Mouse events (desktop)
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      startDrag(item, e.clientY);
+      const onMove = e2 => moveDrag(e2.clientY);
+      const onUp = () => { endDrag(persistFn); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // Touch events (mobile)
+    handle.addEventListener('touchstart', e => {
+      e.preventDefault();
+      startScrollY = window.scrollY;
+      startDrag(item, e.touches[0].clientY);
+    }, { passive: false });
+
+    handle.addEventListener('touchmove', e => {
+      e.preventDefault();
+      moveDrag(e.touches[0].clientY);
+    }, { passive: false });
+
+    handle.addEventListener('touchend', () => endDrag(persistFn));
+  });
+
+  function startDrag(item, y){
+    dragging = item;
+    startY = y;
+    const rect = item.getBoundingClientRect();
+    placeholder = document.createElement('div');
+    placeholder.className = 'drag-placeholder';
+    placeholder.style.cssText = `height:${rect.height}px;border:2px dashed #5DCAA5;border-radius:10px;margin-bottom:6px;background:#E1F5EE;`;
+    item.style.cssText += ';opacity:0.5;position:relative;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+    item.after(placeholder);
+  }
+
+  function moveDrag(y){
+    if(!dragging) return;
+    const dy = y - startY;
+    dragging.style.transform = `translateY(${dy}px)`;
+    const before = getItemFromPoint(y);
+    if(before) container.insertBefore(placeholder, before);
+    else container.appendChild(placeholder);
+  }
+
+  function endDrag(persistFn){
+    if(!dragging) return;
+    dragging.style.transform = '';
+    dragging.style.opacity = '';
+    dragging.style.boxShadow = '';
+    container.insertBefore(dragging, placeholder);
+    placeholder.remove();
+    dragging = null;
+    placeholder = null;
+    persistOrder(container, persistFn);
+  }
+}
+
+async function persistOrder(el, persistFn){
   const ids = Array.from(el.querySelectorAll('.drag-item')).map(n=>n.dataset.id);
   for(let i=0;i<ids.length;i++){
     await persistFn(ids[i], i);
@@ -691,9 +832,51 @@ async function loadMyProducts(){
         <p class="farm">${p.farming_methods?.name || ''}</p>
         <p class="price">${p.price} 元 / ${p.unit}・剩餘 ${p.available_qty ?? '-'}</p>
       </div>
-      <button style="width:auto;flex:0 0 auto;font-size:12px;padding:8px 12px;color:${p.status==='active'?'#A32D2D':'#27500A'};" onclick='event.stopPropagation();toggleProductStatus("${p.id}","${p.status}")'>${p.status==='active'?'下架':'重新上架'}</button>
+      <div style="display:flex;flex-direction:column;gap:4px;flex:0 0 auto;">
+        <button style="width:auto;font-size:12px;padding:6px 10px;color:#0C447C;" onclick='event.stopPropagation();copyProduct(${JSON.stringify(p).replace(/'/g,"&#39;")})'>複製</button>
+        <button style="width:auto;font-size:12px;padding:6px 10px;color:${p.status==='active'?'#A32D2D':'#27500A'};" onclick='event.stopPropagation();toggleProductStatus("${p.id}","${p.status}")'>${p.status==='active'?'下架':'上架'}</button>
+      </div>
     </div>
   `).join('');
+}
+
+async function copyProduct(p){
+  // 先切到新增商品分頁
+  farmerTab('newproduct');
+  // 等DOM渲染完再填入資料
+  await new Promise(r => setTimeout(r, 100));
+
+  document.getElementById('np-name').value = p.name;
+  document.getElementById('np-unit').value = p.unit;
+  document.getElementById('np-price').value = p.price;
+  document.getElementById('np-desc').value = p.description || '';
+  document.getElementById('np-minqty').value = p.min_order_qty || '';
+  document.getElementById('np-qty').value = '';          // 數量留空，讓農友填這批有多少
+  document.getElementById('np-publishat').value = '';    // 上架時間留空
+
+  // 帶入農法
+  if(p.farming_method_id){
+    const sel = document.getElementById('np-method');
+    if(sel) sel.value = p.farming_method_id;
+  }
+
+  // 帶入送貨日期
+  npDates = Array.isArray(p.delivery_dates) ? [...p.delivery_dates] : [];
+  renderDateChips('np');
+
+  // 帶入供貨地點（需要先查）
+  const { data: locs } = await sb.from('product_locations').select('location_id').eq('product_id', p.id);
+  const existingIds = (locs||[]).map(l=>l.location_id);
+  document.querySelectorAll('#np-locations input').forEach(cb => {
+    cb.checked = existingIds.includes(cb.value);
+  });
+
+  // 照片不複製（讓農友重新拍這批的照片）
+  selectedPhotoFile = null;
+  document.getElementById('np-photo-preview').innerHTML = '';
+
+  // 提示農友
+  alert(`已帶入「${p.name}」的商品資料，請更新可售數量並拍攝這批照片後送出上架。`);
 }
 
 async function toggleProductStatus(id, currentStatus){
@@ -1047,6 +1230,17 @@ async function submitOrder(){
 }
 
 // ---------- MY ORDERS ----------
+let showAllOrders = false;
+
+function toggleOrdersFilter(){
+  showAllOrders = !showAllOrders;
+  const btn = document.getElementById('orders-toggle-btn');
+  btn.textContent = showAllOrders ? '未結單' : '含已結單';
+  btn.style.background = showAllOrders ? '#EAF3DE' : '#fff';
+  btn.style.color = showAllOrders ? '#27500A' : '#555';
+  loadOrders();
+}
+
 async function loadOrders(){
   const el = document.getElementById('orders-content');
   const { data, error } = await sb.from('sub_orders')
@@ -1054,9 +1248,14 @@ async function loadOrders(){
     .eq('orders.customer_id', currentUser.id)
     .order('created_at', { ascending: false });
   if(error){ el.innerHTML = '<p>載入失敗：'+error.message+'</p>'; return; }
-  if(!data || data.length === 0){ el.innerHTML = '<p style="color:#999;text-align:center;margin-top:30px;">還沒有任何訂單</p>'; return; }
+  let rows = data || [];
+  if(!showAllOrders) rows = rows.filter(so => !so.is_settled);
+  if(rows.length === 0){
+    el.innerHTML = `<p style="color:#999;text-align:center;margin-top:30px;">${showAllOrders ? '還沒有任何訂單' : '目前沒有未結單的訂單 🎉'}</p>`;
+    return;
+  }
   const statusMap = { pending: ['待繳款','pending'], reported: ['已回報，待確認','reported'], confirmed: ['已確認收款','confirmed'], cancelled: ['已取消','pending'] };
-  el.innerHTML = data.map(so => {
+  el.innerHTML = rows.map(so => {
     const [label, cls] = statusMap[so.payment_status] || ['待繳款','pending'];
     const settledBadge = so.is_settled ? '<span class="status settled">已結單</span>' : `<span class="status ${cls}">${label}</span>`;
     return `<div class="order-card">
