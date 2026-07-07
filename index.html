@@ -33,8 +33,8 @@
   .card .thumb img { width: 100%; height: 100%; object-fit: cover; }
   .card .info { flex: 1; min-width: 0; }
   .card .info p { margin: 0; }
-  .card .name { font-size: 15px; font-weight: 600; }
-  .card .farm { font-size: 12px; color: #888; margin: 3px 0; }
+  .card .name { font-size: 15px; font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .card .farm { font-size: 12px; color: #888; margin: 3px 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .card .price { font-size: 14px; font-weight: 600; color: #3B6D11; }
   .tag { font-size: 11px; padding: 3px 8px; border-radius: 8px; background: #EAF3DE; color: #27500A; align-self: flex-start; white-space: nowrap; }
 
@@ -265,10 +265,14 @@
       </div>
 
       <div id="admin-sort">
-        <p style="font-weight:600;font-size:15px;margin-bottom:6px;">供貨地點排序</p>
-        <p style="font-size:12px;color:#999;margin:0 0 10px;">拖曳調整顯示順序。</p>
+        <p style="font-weight:600;font-size:15px;margin-bottom:6px;">供貨地點管理</p>
+        <p style="font-size:12px;color:#999;margin:0 0 10px;">拖曳調整顯示順序，點「刪除」移除地點。</p>
         <div id="admin-locations"></div>
-        <p style="font-weight:600;font-size:15px;margin:24px 0 6px;">農法排序</p>
+        <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:4px;">
+          <input id="admin-new-location" placeholder="新增供貨地點名稱...">
+          <button style="width:auto;flex:0 0 auto;" onclick="addSupplyLocation()">新增</button>
+        </div>
+        <p style="font-weight:600;font-size:15px;margin:24px 0 6px;">農法管理</p>
         <div id="admin-methods"></div>
         <div style="display:flex;gap:8px;margin-top:8px;">
           <input id="admin-new-method" placeholder="新增農法名稱...">
@@ -425,20 +429,20 @@ async function adminResetPassword(phone){
 }
 
 // ---------- ADMIN: 排序管理 ----------
-function renderSortableList(containerId, items, persistFn, showDelete){
+function renderSortableList(containerId, items, persistFn, showDelete, reloadFn){
   const el = document.getElementById(containerId);
   el.innerHTML = items.map((item) => `
     <div class="drag-item" data-id="${item.id}"
       style="display:flex;align-items:center;gap:10px;border:1px solid #eee;border-radius:10px;padding:10px 12px;margin-bottom:6px;background:#fff;touch-action:none;user-select:none;">
       <span style="color:#bbb;font-size:20px;cursor:grab;padding:4px;">⠿</span>
       <span style="font-size:14px;flex:1;">${item.name}</span>
-      ${showDelete ? `<button style="width:auto;color:#A32D2D;border:none;background:none;font-size:13px;" onclick="deleteFarmingMethod('${item.id}','${item.name}')">刪除</button>` : ''}
+      ${showDelete ? `<button style="width:auto;color:#A32D2D;border:none;background:none;font-size:13px;" onclick="${containerId==='admin-methods'?'deleteFarmingMethod':'deleteSupplyLocation'}('${item.id}','${item.name}')">刪除</button>` : ''}
     </div>
   `).join('');
-  initDragSort(el, persistFn);
+  initDragSort(el, persistFn, reloadFn);
 }
 
-function initDragSort(container, persistFn){
+function initDragSort(container, persistFn, reloadFn){
   let dragging = null, placeholder = null, startY = 0, startScrollY = 0;
 
   function getItemFromPoint(y){
@@ -459,7 +463,7 @@ function initDragSort(container, persistFn){
       e.preventDefault();
       startDrag(item, e.clientY);
       const onMove = e2 => moveDrag(e2.clientY);
-      const onUp = () => { endDrag(persistFn); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+      const onUp = () => { endDrag(persistFn, reloadFn); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     });
@@ -476,7 +480,7 @@ function initDragSort(container, persistFn){
       moveDrag(e.touches[0].clientY);
     }, { passive: false });
 
-    handle.addEventListener('touchend', () => endDrag(persistFn));
+    handle.addEventListener('touchend', () => endDrag(persistFn, reloadFn));
   });
 
   function startDrag(item, y){
@@ -499,7 +503,7 @@ function initDragSort(container, persistFn){
     else container.appendChild(placeholder);
   }
 
-  function endDrag(persistFn){
+  function endDrag(persistFn, reloadFn){
     if(!dragging) return;
     dragging.style.transform = '';
     dragging.style.opacity = '';
@@ -508,29 +512,51 @@ function initDragSort(container, persistFn){
     placeholder.remove();
     dragging = null;
     placeholder = null;
-    persistOrder(container, persistFn);
+    persistOrder(container, persistFn, reloadFn);
   }
 }
 
-async function persistOrder(el, persistFn){
+async function persistOrder(el, persistFn, reloadFn){
   const ids = Array.from(el.querySelectorAll('.drag-item')).map(n=>n.dataset.id);
   for(let i=0;i<ids.length;i++){
     await persistFn(ids[i], i);
   }
+  // 重新載入確認儲存成功，並同步更新農友表單
+  if(reloadFn) reloadFn();
+  if(el.id === 'admin-methods') loadFarmingMethodsForForm();
+  if(el.id === 'admin-locations') loadLocationCheckboxes();
 }
 
 async function loadAdminLocations(){
   const { data } = await sb.from('supply_locations').select('*').order('sort_order');
   window.__adminLocations = data || [];
   renderSortableList('admin-locations', window.__adminLocations, (id, newIdx) =>
-    sb.from('supply_locations').update({ sort_order: newIdx }).eq('id', id));
+    sb.from('supply_locations').update({ sort_order: newIdx }).eq('id', id), true, loadAdminLocations);
+}
+
+async function addSupplyLocation(){
+  const input = document.getElementById('admin-new-location');
+  const name = input.value.trim();
+  if(!name) return;
+  const maxOrder = (window.__adminLocations||[]).length;
+  const { error } = await sb.from('supply_locations').insert({ name, sort_order: maxOrder });
+  if(error){ alert('新增失敗：' + error.message); return; }
+  input.value = '';
+  loadAdminLocations();
+}
+
+async function deleteSupplyLocation(id, name){
+  if(!confirm(`確定要刪除「${name}」這個供貨地點嗎？\n⚠️ 如果已有商品使用這個地點，可能會影響現有資料。`)) return;
+  const { error } = await sb.from('supply_locations').delete().eq('id', id);
+  if(error){ alert('刪除失敗，可能有商品正在使用這個地點：' + error.message); return; }
+  loadAdminLocations();
 }
 
 async function loadAdminMethods(){
   const { data } = await sb.from('farming_methods').select('*').order('sort_order');
   window.__adminMethods = data || [];
   renderSortableList('admin-methods', window.__adminMethods, (id, newIdx) =>
-    sb.from('farming_methods').update({ sort_order: newIdx }).eq('id', id), true);
+    sb.from('farming_methods').update({ sort_order: newIdx }).eq('id', id), true, loadAdminMethods);
 }
 
 async function deleteFarmingMethod(id, name){
@@ -586,7 +612,7 @@ function farmerTab(tab){
   });
   if(tab==='dispatch') loadDispatchOverview();
   if(tab==='products') loadMyProducts();
-  if(tab==='newproduct') loadLocationCheckboxes();
+  if(tab==='newproduct'){ loadLocationCheckboxes(); loadFarmingMethodsForForm(); }
   if(tab==='history'){
     const end = new Date();
     const start = new Date(); start.setDate(start.getDate()-30);
@@ -1038,6 +1064,7 @@ async function loadProducts(){
   list.innerHTML = items.map((p, i) => {
     const locs = p.product_locations.map(pl=>pl.supply_locations?.name).filter(Boolean);
     const photo = p.product_photos?.[0]?.photo_url;
+    const locLabel = locs.length > 2 ? locs.slice(0,2).join('・') + ` +${locs.length-2}` : locs.join('・') || '未設定';
     return `<div class="card" onclick="openDetail(${i})">
       <div class="thumb">${photo ? `<img src="${photo}">` : '🥬'}</div>
       <div class="info">
@@ -1045,7 +1072,7 @@ async function loadProducts(){
         <p class="farm">${p.farmer_profiles?.farm_name || ''}${p.farming_methods?.name ? '・'+p.farming_methods.name : ''}</p>
         <p class="price">${p.price} 元 / ${p.unit}</p>
       </div>
-      <span class="tag">${locs.join('・') || '未設定'}</span>
+      <span class="tag" style="max-width:90px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">${locLabel}</span>
     </div>`;
   }).join('');
 }
@@ -1272,10 +1299,34 @@ async function loadOrders(){
           <div class="field"><label>匯款帳號後五碼</label><input id="rp-last5-${so.id}" placeholder="例如：12345" maxlength="5"></div>
           <button class="primary" onclick="reportPayment('${so.id}')">送出回報</button>
         </div>
+        <button style="margin-top:6px;font-size:12px;color:#A32D2D;border-color:#A32D2D;" onclick="cancelSubOrder('${so.id}')">取消此筆訂單</button>
       ` : ''}
-      ${so.payment_status === 'reported' && !so.is_settled ? `<p style="font-size:12px;color:#0C447C;">已回報，等待農友/管理員確認</p>` : ''}
+      ${so.payment_status === 'reported' && !so.is_settled ? `
+        <p style="font-size:12px;color:#0C447C;margin:0 0 6px;">已回報，等待農友/管理員確認</p>
+        <button style="font-size:12px;color:#A32D2D;border-color:#A32D2D;" onclick="cancelSubOrder('${so.id}')">取消此筆訂單</button>
+      ` : ''}
     </div>`;
   }).join('');
+}
+
+async function cancelSubOrder(subOrderId){
+  if(!confirm('確定要取消這筆訂單嗎？\n取消後農友將看到取消狀態，庫存會自動回補。')) return;
+  const { data: so } = await sb.from('sub_orders').select('product_id, quantity, payment_status').eq('id', subOrderId).maybeSingle();
+  if(!so){ alert('找不到訂單資料'); return; }
+  if(so.payment_status === 'confirmed'){ alert('此訂單農友已確認收款，無法自行取消，請直接聯絡農友處理。'); return; }
+  const { error } = await sb.from('sub_orders').update({
+    payment_status: 'cancelled',
+    is_settled: true
+  }).eq('id', subOrderId);
+  if(error){ alert('取消失敗：' + error.message); return; }
+  // 庫存回補
+  const { data: product } = await sb.from('products').select('available_qty').eq('id', so.product_id).maybeSingle();
+  if(product && product.available_qty != null){
+    const newQty = product.available_qty + Number(so.quantity);
+    await sb.from('products').update({ available_qty: newQty, status: 'active' }).eq('id', so.product_id);
+  }
+  alert('訂單已取消，庫存已自動回補。');
+  loadOrders();
 }
 
 function openReportForm(subOrderId){
