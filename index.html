@@ -518,11 +518,11 @@ function initDragSort(container, persistFn, reloadFn){
 
 async function persistOrder(el, persistFn, reloadFn){
   const ids = Array.from(el.querySelectorAll('.drag-item')).map(n=>n.dataset.id);
-  for(let i=0;i<ids.length;i++){
+  // 逐一等待，確保 sort_order 按照正確順序寫入資料庫
+  for(let i=0; i<ids.length; i++){
     await persistFn(ids[i], i);
   }
-  // 重新載入確認儲存成功，並同步更新農友表單
-  if(reloadFn) reloadFn();
+  // 全部寫完才同步農友表單，不重新載入排序清單（避免畫面閃回）
   if(el.id === 'admin-methods') loadFarmingMethodsForForm();
   if(el.id === 'admin-locations') loadLocationCheckboxes();
 }
