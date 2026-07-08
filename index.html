@@ -121,8 +121,19 @@
   <div id="view-main" class="hide">
     <header class="top">
       <h1 id="header-title">公益市集</h1>
-      <button class="topbar-action" onclick="logout()">登出</button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button class="topbar-action" id="notif-btn" onclick="showNotifications()" style="position:relative;display:none;">
+          🔔<span id="notif-badge" style="position:absolute;top:-4px;right:-4px;background:#A32D2D;color:#fff;border-radius:50%;font-size:10px;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;"></span>
+        </button>
+        <button class="topbar-action" onclick="logout()">登出</button>
+      </div>
     </header>
+
+    <!-- 通知彈出視窗 -->
+    <div id="notif-modal" class="hide" style="position:fixed;top:56px;right:8px;width:300px;max-height:70vh;overflow-y:auto;background:#fff;border:1px solid #eee;border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,0.12);z-index:100;padding:14px;">
+      <p style="font-weight:600;font-size:14px;margin:0 0 10px;">通知</p>
+      <div id="notif-content"></div>
+    </div>
 
     <!-- 首頁 -->
     <div id="view-home" class="screen">
@@ -262,6 +273,7 @@
       <div class="chips" style="margin-bottom:14px;">
         <span class="chip active" id="atab-sort" onclick="adminTab('sort')">排序管理</span>
         <span class="chip" id="atab-accounts" onclick="adminTab('accounts')">帳號管理</span>
+        <span class="chip" id="atab-products" onclick="adminTab('products')">商品管理</span>
       </div>
 
       <div id="admin-sort">
@@ -287,6 +299,19 @@
           <button style="width:auto;flex:0 0 auto;" onclick="adminSearchUser()">搜尋</button>
         </div>
         <div id="admin-user-result"></div>
+      </div>
+
+      <div id="admin-products" class="hide">
+        <p style="font-weight:600;font-size:15px;margin-bottom:6px;">商品管理</p>
+        <p style="font-size:12px;color:#999;margin:0 0 10px;">可強制下架農友商品，已有訂單不受影響仍可正常處理。</p>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <select id="admin-product-filter" style="flex:1;" onchange="loadAdminProducts()">
+            <option value="active">上架中</option>
+            <option value="closed">已關閉</option>
+            <option value="all">全部</option>
+          </select>
+        </div>
+        <div id="admin-products-list"></div>
       </div>
     </div>
 
@@ -379,6 +404,7 @@ function enterApp(){
   loadLocations();
   loadProducts();
   if(currentUser.is_farmer) loadFarmingMethodsForForm();
+  if(currentUser.is_customer) checkNotifications();
 }
 
 // ---------- NAV ----------
@@ -395,11 +421,44 @@ function showFarmer(){ setActiveScreen('view-farmer'); document.getElementById('
 function showAdmin(){ setActiveScreen('view-admin'); document.getElementById('nav-admin').classList.add('active'); adminTab('sort'); }
 
 function adminTab(tab){
-  ['sort','accounts'].forEach(t=>{
+  ['sort','accounts','products'].forEach(t=>{
     document.getElementById('admin-'+t).classList.toggle('hide', t!==tab);
     document.getElementById('atab-'+t).classList.toggle('active', t===tab);
   });
   if(tab==='sort'){ loadAdminLocations(); loadAdminMethods(); }
+  if(tab==='products') loadAdminProducts();
+}
+
+async function loadAdminProducts(){
+  const el = document.getElementById('admin-products-list');
+  el.innerHTML = '<p style="color:#999;">載入中...</p>';
+  const filter = document.getElementById('admin-product-filter').value;
+  let query = sb.from('products').select('*, farmer_profiles(farm_name, user_id), farming_methods(name)').order('created_at',{ascending:false});
+  if(filter !== 'all') query = query.eq('status', filter);
+  const { data, error } = await query;
+  if(error){ el.innerHTML = '<p>載入失敗：'+error.message+'</p>'; return; }
+  if(!data || data.length===0){ el.innerHTML = '<p style="color:#999;text-align:center;margin-top:20px;">沒有符合的商品</p>'; return; }
+  el.innerHTML = data.map(p => `
+    <div class="card" style="cursor:default;align-items:flex-start;">
+      <div class="info">
+        <p class="name">${p.name}　<span style="font-size:11px;color:${p.status==='active'?'#27500A':'#999'};">${p.status==='active'?'上架中':'已關閉'}</span></p>
+        <p class="farm">${p.farmer_profiles?.farm_name || ''}${p.farming_methods?.name?'・'+p.farming_methods.name:''}</p>
+        <p class="price">${p.price} 元 / ${p.unit}・剩餘 ${p.available_qty ?? '-'}</p>
+      </div>
+      <button style="width:auto;flex:0 0 auto;font-size:12px;padding:6px 10px;color:${p.status==='active'?'#A32D2D':'#27500A'};" onclick="adminToggleProduct('${p.id}','${p.status}','${p.name}')">
+        ${p.status==='active'?'強制下架':'重新上架'}
+      </button>
+    </div>
+  `).join('');
+}
+
+async function adminToggleProduct(id, currentStatus, name){
+  const newStatus = currentStatus === 'active' ? 'closed' : 'active';
+  const action = newStatus === 'closed' ? '強制下架' : '重新上架';
+  if(!confirm(`確定要${action}「${name}」嗎？\n${newStatus==='closed'?'下架後顧客無法再訂購，但已有訂單不受影響。':'重新上架後顧客可以再訂購。'}`)) return;
+  const { error } = await sb.from('products').update({ status: newStatus }).eq('id', id);
+  if(error){ alert('操作失敗：' + error.message); return; }
+  loadAdminProducts();
 }
 
 async function adminSearchUser(){
@@ -428,7 +487,60 @@ async function adminResetPassword(phone){
   document.getElementById('admin-reset-pw').value = '';
 }
 
-// ---------- ADMIN: 排序管理 ----------
+// ---------- 通知機制 ----------
+let notifications = [];
+
+async function checkNotifications(){
+  // 查詢顧客訂單中，有狀態變動（已確認/已取消）且尚未被顧客看過的
+  const lastSeen = localStorage.getItem('cm_last_seen_' + currentUser.id) || '2000-01-01';
+  const { data, error } = await sb.from('sub_orders')
+    .select('*, products(name), farmer_profiles(farm_name), orders!inner(customer_id)')
+    .eq('orders.customer_id', currentUser.id)
+    .in('payment_status', ['confirmed', 'cancelled'])
+    .gt('updated_at', lastSeen)
+    .order('updated_at', { ascending: false });
+  if(error || !data || data.length === 0){
+    document.getElementById('notif-btn').style.display = 'none';
+    return;
+  }
+  notifications = data;
+  const btn = document.getElementById('notif-btn');
+  btn.style.display = 'block';
+  document.getElementById('notif-badge').textContent = data.length;
+}
+
+function showNotifications(){
+  const modal = document.getElementById('notif-modal');
+  modal.classList.toggle('hide');
+  if(modal.classList.contains('hide')) return;
+  const el = document.getElementById('notif-content');
+  el.innerHTML = notifications.map(n => {
+    const isCancelled = n.payment_status === 'cancelled';
+    const color = isCancelled ? '#A32D2D' : '#27500A';
+    const bg = isCancelled ? '#FAEEDA' : '#EAF3DE';
+    const icon = isCancelled ? '❌' : '✅';
+    const msg = isCancelled
+      ? `您訂購「${n.products?.name}」的訂單已被取消，庫存已自動回補。`
+      : `農友「${n.farmer_profiles?.farm_name}」已確認收到您的款項，訂單已結單。`;
+    return `<div style="border-radius:10px;padding:10px;margin-bottom:8px;background:${bg};">
+      <p style="font-size:13px;font-weight:600;color:${color};margin:0 0 4px;">${icon} ${isCancelled?'訂單取消通知':'收款確認通知'}</p>
+      <p style="font-size:12px;color:#555;margin:0;">${msg}</p>
+    </div>`;
+  }).join('');
+  // 記錄已讀時間
+  localStorage.setItem('cm_last_seen_' + currentUser.id, new Date().toISOString());
+  document.getElementById('notif-badge').textContent = '';
+}
+
+// 點擊其他地方關閉通知視窗
+document.addEventListener('click', e => {
+  const modal = document.getElementById('notif-modal');
+  const btn = document.getElementById('notif-btn');
+  if(modal && !modal.contains(e.target) && btn && !btn.contains(e.target)){
+    modal.classList.add('hide');
+  }
+});
+
 function renderSortableList(containerId, items, persistFn, showDelete, reloadFn){
   const el = document.getElementById(containerId);
   el.innerHTML = items.map((item) => `
